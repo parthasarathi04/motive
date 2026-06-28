@@ -1,0 +1,6 @@
+{
+  "name": "Motive",
+  "description": "An AI execution companion that helps users achieve goals through intelligent planning, prioritization, and scheduling",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
