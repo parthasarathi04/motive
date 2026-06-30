@@ -8,6 +8,7 @@ import { SettingsSection } from './components/SettingsSection';
 import { AISidebar } from './components/AISidebar';
 import { TimelineSection } from './components/TimelineSection';
 import { LandingPage } from './components/LandingPage';
+import { SidebarClock } from './components/SidebarClock';
 import { BusinessEngine } from './utils/BusinessEngine';
 import { 
   Compass, 
@@ -32,6 +33,7 @@ import {
   ChevronRight,
   ChevronDown,
   Brain,
+  Bot,
   Briefcase,
   Zap,
   Bell,
@@ -352,8 +354,8 @@ const Sidebar: React.FC = () => {
                   <h1 className={`text-[17px] font-black text-slate-950 dark:text-white tracking-wider leading-none ${getLogoFontClass(settings?.logoFont)} lowercase`}>
                     motive
                   </h1>
-                  <p className="text-[8px] text-slate-400 dark:text-zinc-500 font-bold tracking-wider font-mono mt-0.5 uppercase">
-                    Mo — AI Execution Companion
+                  <p className="text-[10px] text-slate-400 dark:text-neutral-500 font-medium tracking-wide mt-1 lowercase font-sans">
+                    built for momentum
                   </p>
                 </div>
               )}
@@ -510,7 +512,7 @@ const Sidebar: React.FC = () => {
               }`}
               title="Mo"
             >
-              <Sparkles className={`h-5 w-5 ${isAiSidebarOpen ? 'animate-pulse text-indigo-500' : 'text-slate-400 transition-colors'}`} />
+              <Bot className={`h-5 w-5 ${isAiSidebarOpen ? 'animate-pulse text-indigo-500' : 'text-slate-400 transition-colors'}`} />
               {/* Dot indicator */}
               {!isAiSidebarOpen && (
                 <span className="absolute top-1 right-1 flex h-1.5 w-1.5">
@@ -519,6 +521,11 @@ const Sidebar: React.FC = () => {
                 </span>
               )}
             </button>
+          </div>
+
+          {/* Minimalist Clock above profile */}
+          <div className="px-1 pt-1">
+            <SidebarClock isSidebarCollapsed={isSidebarCollapsed} />
           </div>
 
           {/* Profile container */}
@@ -630,7 +637,31 @@ const Sidebar: React.FC = () => {
 };
 
 const DashboardView: React.FC = () => {
-  const { goals, commitments, recommendations, relationships, setActiveView, plannerResult } = useMotive();
+  const { 
+    goals, 
+    commitments, 
+    recommendations, 
+    relationships, 
+    setActiveView, 
+    plannerResult, 
+    userProfile,
+    setIsAiSidebarOpen,
+    generateNewRecommendation
+  } = useMotive();
+
+  const [greetingWord, setGreetingWord] = React.useState("Good Morning");
+  React.useEffect(() => {
+    const hr = new Date().getHours();
+    if (hr >= 5 && hr < 12) {
+      setGreetingWord("Good Morning");
+    } else if (hr >= 12 && hr < 17) {
+      setGreetingWord("Good Afternoon");
+    } else if (hr >= 17 && hr < 22) {
+      setGreetingWord("Good Evening");
+    } else {
+      setGreetingWord("Good Night");
+    }
+  }, []);
 
   const activeGoalsList = goals.filter(g => g.status === 'ACTIVE' || g.status === 'PLANNING');
   const activeGoalsCount = activeGoalsList.length;
@@ -674,13 +705,39 @@ const DashboardView: React.FC = () => {
     ? Math.round((completedTasksToday / todayTasks.length) * 100)
     : 0;
 
-  const progressText = todayTasks.length > 0 
-    ? (percentageToday === 100 
-        ? "Amazing work! Finished everything today." 
+  let progressText = "No tasks scheduled for today.";
+  if (todayTasks.length > 0) {
+    if (percentageToday === 100) {
+      progressText = `Amazing work! Finished all ${todayTasks.length} commitments.`;
+    } else if (percentageToday > 0) {
+      progressText = `${completedTasksToday} of ${todayTasks.length} completed. Keep up the momentum!`;
+    } else {
+      const meetingsText = meetingsCountToday > 0 
+        ? `${meetingsCountToday} meeting${meetingsCountToday !== 1 ? 's' : ''}` 
+        : "";
+      const focusText = focusCountToday > 0 
+        ? `${focusCountToday} focus block${focusCountToday !== 1 ? 's' : ''}` 
+        : "";
+      
+      if (meetingsText && focusText) {
+        progressText = `${meetingsText} and ${focusText} scheduled. Ready to execute!`;
+      } else if (meetingsText) {
+        progressText = `${meetingsText} scheduled. Ready to begin.`;
+      } else if (focusText) {
+        progressText = `${focusText} scheduled. Ready to execute.`;
+      } else {
+        progressText = `${todayTasks.length} commitment${todayTasks.length !== 1 ? 's' : ''} scheduled today.`;
+      }
+    }
+  }
+
+  const progressTitle = todayTasks.length === 0 
+    ? "Clear Schedule" 
+    : (percentageToday === 100 
+        ? "All Accomplished" 
         : percentageToday > 0 
-          ? "You're doing great! Keep going." 
-          : "No actions completed yet. Let's make progress!")
-    : "No tasks scheduled for today.";
+          ? "On Track" 
+          : "Ready to Begin");
 
   // Calculate success probability dynamically based on actual goals progress from Planner Result
   const successProbability = plannerResult.executionMomentum;
@@ -691,9 +748,14 @@ const DashboardView: React.FC = () => {
     .reduce((sum, c) => sum + c.estimatedDuration, 0);
   const focusHours = (totalFocusMinutes / 60).toFixed(1);
 
-  // Dynamic schedules based on real today's commitments
+  // Dynamic schedules based on real today's commitments (only show upcoming after current time)
+  const now = new Date();
   const realSchedules = todayTasks
     .filter(c => c.startTime && c.status !== 'CANCELLED')
+    .filter(c => {
+      const end = c.endTime ? new Date(c.endTime) : (c.startTime ? new Date(c.startTime) : null);
+      return end ? end.getTime() >= now.getTime() : false;
+    })
     .sort((a, b) => new Date(a.startTime!).getTime() - new Date(b.startTime!).getTime())
     .map(c => {
       const timeStr = new Date(c.startTime!).toLocaleTimeString('en-US', {
@@ -824,9 +886,9 @@ const DashboardView: React.FC = () => {
             <Sparkles className="h-[15px] w-[15px]" />
           </div>
           <div className="space-y-1 z-10">
-            <h4 className="text-[13px] font-bold text-slate-950 dark:text-neutral-50 font-sans tracking-tight">Good Morning, Partha.</h4>
+            <h4 className="text-[13px] font-bold text-slate-950 dark:text-neutral-50 font-sans tracking-tight">{greetingWord}, {userProfile?.name || 'User'}.</h4>
             <p className="text-[11.5px] text-slate-500 dark:text-zinc-400 leading-relaxed font-medium">
-              Today contains <span className="text-emerald-600 dark:text-emerald-400 font-bold">• 7 commitments</span>, <span className="text-emerald-600 dark:text-emerald-400 font-bold">• 2 high-impact tasks</span>, and <span className="text-emerald-600 dark:text-emerald-400 font-bold">• 1 scheduling conflict</span>. AI predicts an excellent execution day.
+              Today contains <span className="text-emerald-600 dark:text-emerald-400 font-bold">• {todayTasks.length} commitment{todayTasks.length !== 1 ? 's' : ''}</span>, <span className="text-emerald-600 dark:text-emerald-400 font-bold">• {focusCountToday} focus block{focusCountToday !== 1 ? 's' : ''}</span>{plannerResult.conflicts.length > 0 ? <>, and <span className="text-rose-600 dark:text-rose-400 font-bold">• {plannerResult.conflicts.length} conflict{plannerResult.conflicts.length !== 1 ? 's' : ''}</span></> : ''}. AI predicts an excellent execution day.
             </p>
           </div>
         </div>
@@ -838,7 +900,11 @@ const DashboardView: React.FC = () => {
               Today's Priority Plan
             </h2>
             <button 
-              onClick={() => setActiveView('commitments')}
+              onClick={async () => {
+                setActiveView('commitments');
+                setIsAiSidebarOpen(true);
+                await generateNewRecommendation();
+              }}
               className="flex items-center gap-1.5 text-xs text-neutral-800 dark:text-neutral-200 font-semibold bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-850 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 cursor-pointer shadow-xs transition-all duration-200"
             >
               <Sparkles className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
@@ -968,7 +1034,7 @@ const DashboardView: React.FC = () => {
             <RadialProgress percentage={percentageToday} />
             <div className="space-y-0.5">
               <h4 className="text-xs font-bold text-slate-800 dark:text-zinc-200 leading-tight">
-                {percentageToday === 100 ? "All Accomplished" : percentageToday > 0 ? "On Track" : "Awaiting Actions"}
+                {progressTitle}
               </h4>
               <p className="text-[10.5px] text-slate-500 dark:text-zinc-400 leading-normal font-medium">
                 {progressText}
@@ -1201,7 +1267,7 @@ const MainWorkspace: React.FC = () => {
         };
       case 'insights':
         return {
-          title: "Mo — AI Execution Companion",
+          title: "Motive Intelligence",
           subtitle: "Formulate strategies, query execution health, and optimize schedules directly with Mo."
         };
       case 'settings':
@@ -1212,7 +1278,7 @@ const MainWorkspace: React.FC = () => {
       default:
         return {
           title: "Motive Workspace",
-          subtitle: "Mo AI Execution Companion."
+          subtitle: "Intelligent execution workspace."
         };
     }
   };

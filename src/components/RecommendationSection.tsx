@@ -70,6 +70,51 @@ export const RecommendationSection: React.FC = () => {
               </p>
             </div>
 
+            {/* Premium Explainable Analytics */}
+            <div className="mt-3.5 space-y-3.5 border-t border-slate-50 dark:border-zinc-900/50 pt-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 text-[10.5px]">
+                {activeRec.why && (
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 dark:text-zinc-500 font-bold font-mono text-[8.5px] uppercase tracking-wider block">Why this action?</span>
+                    <p className="text-slate-700 dark:text-zinc-300 font-medium leading-relaxed">{activeRec.why}</p>
+                  </div>
+                )}
+                {activeRec.expectedBenefit && (
+                  <div className="space-y-0.5">
+                    <span className="text-emerald-600 dark:text-emerald-500 font-bold font-mono text-[8.5px] uppercase tracking-wider block">Expected Benefit</span>
+                    <p className="text-slate-700 dark:text-zinc-300 font-medium leading-relaxed">{activeRec.expectedBenefit}</p>
+                  </div>
+                )}
+                {activeRec.riskIfIgnored && (
+                  <div className="space-y-0.5 col-span-1 md:col-span-2">
+                    <span className="text-rose-600 dark:text-rose-500 font-bold font-mono text-[8.5px] uppercase tracking-wider block">Risk If Ignored</span>
+                    <p className="text-slate-700 dark:text-zinc-300 font-medium leading-relaxed">{activeRec.riskIfIgnored}</p>
+                  </div>
+                )}
+                {activeRec.whyTimeSlot && (
+                  <div className="space-y-0.5 col-span-1 md:col-span-2">
+                    <span className="text-indigo-600 dark:text-indigo-500 font-bold font-mono text-[8.5px] uppercase tracking-wider block">Scheduling Slot Justification</span>
+                    <p className="text-slate-700 dark:text-zinc-300 font-medium leading-relaxed">{activeRec.whyTimeSlot}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[9.5px] font-mono border-t border-slate-50 dark:border-zinc-900/40 pt-2.5 text-slate-500 dark:text-zinc-400">
+                {activeRec.momentumImpact && (
+                  <div>
+                    <span className="font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Momentum Impact: </span>
+                    <span className="font-extrabold text-indigo-600 dark:text-indigo-400">+{activeRec.momentumImpact} Index</span>
+                  </div>
+                )}
+                {activeRec.goalImpact && (
+                  <div>
+                    <span className="font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Goal Impact: </span>
+                    <span className="font-extrabold text-emerald-600 dark:text-emerald-400">{activeRec.goalImpact}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Action Buttons - Compact */}
             <div className="flex items-center gap-2 mt-3.5 pt-2.5 border-t border-slate-50 dark:border-zinc-900/60">
               <button

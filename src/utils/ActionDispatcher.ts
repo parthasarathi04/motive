@@ -16,7 +16,8 @@ export type ActionType =
   | 'RESCHEDULE_COMMITMENT'
   | 'SYNC_CALENDAR'
   | 'CONNECT_ACCOUNT'
-  | 'DISCONNECT_ACCOUNT';
+  | 'DISCONNECT_ACCOUNT'
+  | 'UPDATE_SETTINGS';
 
 export interface Action {
   type: ActionType;
@@ -34,6 +35,10 @@ export const ActionDispatcher = {
 
     // Route to correct domain service
     switch (action.type) {
+      case 'UPDATE_SETTINGS':
+        await SettingsService.updateSettings(userId, action.payload);
+        break;
+
       case 'CREATE_GOAL':
         await GoalService.createGoal(userId, action.payload);
         break;

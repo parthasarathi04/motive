@@ -14,6 +14,7 @@ import {
   Check,
   CheckSquare,
   Sparkles,
+  Bot,
   Layers,
   Info,
   Sliders,
@@ -48,24 +49,39 @@ const getPositionedCommitments = (dayComms: Commitment[], paddingLeftRightPercen
 
   if (validComms.length === 0) return [];
 
-  const clusters: Commitment[][] = [];
-  let currentCluster: Commitment[] = [];
-  let clusterEnd = 0;
+  // Calculate physical top, height, and bottom boundaries for each card based on the actual UI render size
+  const minHeight = paddingLeftRightPx === 12 ? 55 : 25;
+  const items = validComms.map(c => {
+    const start = new Date(c.startTime!);
+    const startMins = start.getHours() * 60 + start.getMinutes();
+    const duration = c.estimatedDuration || 60;
+    const top = startMins;
+    const height = Math.max(duration, minHeight);
+    const bottom = top + height;
+    return {
+      commitment: c,
+      top,
+      height,
+      bottom
+    };
+  });
 
-  validComms.forEach(c => {
-    const start = new Date(c.startTime!).getTime();
-    const end = new Date(c.endTime!).getTime();
+  // Cluster overlapping items physically
+  const clusters: typeof items[] = [];
+  let currentCluster: typeof items = [];
+  let clusterBottom = 0;
 
+  items.forEach(item => {
     if (currentCluster.length === 0) {
-      currentCluster.push(c);
-      clusterEnd = end;
-    } else if (start < clusterEnd) {
-      currentCluster.push(c);
-      if (end > clusterEnd) clusterEnd = end;
+      currentCluster.push(item);
+      clusterBottom = item.bottom;
+    } else if (item.top < clusterBottom) {
+      currentCluster.push(item);
+      if (item.bottom > clusterBottom) clusterBottom = item.bottom;
     } else {
       clusters.push(currentCluster);
-      currentCluster = [c];
-      clusterEnd = end;
+      currentCluster = [item];
+      clusterBottom = item.bottom;
     }
   });
   if (currentCluster.length > 0) {
@@ -75,49 +91,42 @@ const getPositionedCommitments = (dayComms: Commitment[], paddingLeftRightPercen
   const result: PositionedCommitment[] = [];
 
   clusters.forEach(cluster => {
-    const columns: Commitment[][] = [];
+    const columns: typeof items[] = [];
 
-    cluster.forEach(c => {
-      const start = new Date(c.startTime!).getTime();
-      
+    cluster.forEach(item => {
       let colIndex = -1;
       for (let i = 0; i < columns.length; i++) {
         const lastInCol = columns[i][columns[i].length - 1];
-        const lastEnd = new Date(lastInCol.endTime!).getTime();
-        if (start >= lastEnd) {
+        // If this item physically starts at or after the last item's physical bottom, reuse the column
+        if (item.top >= lastInCol.bottom) {
           colIndex = i;
           break;
         }
       }
 
       if (colIndex === -1) {
-        columns.push([c]);
+        columns.push([item]);
       } else {
-        columns[colIndex].push(c);
+        columns[colIndex].push(item);
       }
     });
 
     const totalCols = columns.length;
     
-    cluster.forEach(c => {
+    cluster.forEach(item => {
       let colIndex = 0;
       for (let i = 0; i < columns.length; i++) {
-        if (columns[i].includes(c)) {
+        if (columns[i].includes(item)) {
           colIndex = i;
           break;
         }
       }
 
-      // Compute how many columns this item can stretch to the right
+      // Compute how many columns this item can stretch to the right without physical collision
       let colSpan = 1;
-      const startMs = new Date(c.startTime!).getTime();
-      const endMs = new Date(c.endTime!).getTime();
-
       for (let j = colIndex + 1; j < totalCols; j++) {
         const hasOverlapInCol = columns[j].some(other => {
-          const oStart = new Date(other.startTime!).getTime();
-          const oEnd = new Date(other.endTime!).getTime();
-          return startMs < oEnd && oStart < endMs;
+          return item.top < other.bottom && other.top < item.bottom;
         });
         if (hasOverlapInCol) {
           break;
@@ -125,21 +134,14 @@ const getPositionedCommitments = (dayComms: Commitment[], paddingLeftRightPercen
         colSpan++;
       }
 
-      const start = new Date(c.startTime!);
-      const startMins = start.getHours() * 60 + start.getMinutes();
-      const duration = c.estimatedDuration || 60;
-
-      const top = startMins;
-      const height = Math.max(duration, paddingLeftRightPx === 12 ? 55 : 25);
-
       const colWidthPercent = 100 / totalCols;
       const left = `calc(${colIndex * colWidthPercent}% + ${paddingLeftRightPx}px)`;
       const width = `calc(${colSpan * colWidthPercent}% - ${paddingLeftRightPx * 2}px)`;
 
       result.push({
-        commitment: c,
-        top,
-        height,
+        commitment: item.commitment,
+        top: item.top,
+        height: item.height,
         left,
         width
       });
@@ -150,7 +152,16 @@ const getPositionedCommitments = (dayComms: Commitment[], paddingLeftRightPercen
 };
 
 export const CalendarSection: React.FC = () => {
-  const { commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitmentComplete, syncGoogleCalendar } = useMotive();
+  const { 
+    commitments, 
+    addCommitment, 
+    updateCommitment, 
+    deleteCommitment, 
+    toggleCommitmentComplete, 
+    syncGoogleCalendar,
+    setIsAiSidebarOpen,
+    sendChatMessage
+  } = useMotive();
   
   const [viewMode, setViewMode] = useState<'year' | 'month' | 'week' | 'day'>('month');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -708,11 +719,11 @@ export const CalendarSection: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col xl:flex-row gap-6 min-h-[calc(100vh-180px)] select-none">
+    <div className="flex flex-col xl:flex-row gap-6 min-h-[calc(100vh-180px)] xl:h-[calc(100vh-180px)] select-none">
       
       {/* Side Control and Mini Calendar (Google Calendar style) */}
       {showSidebar && (
-        <aside className="w-full xl:w-72 flex flex-col gap-4 flex-shrink-0 animate-in fade-in slide-in-from-left duration-200">
+        <aside className="w-full xl:w-56 flex flex-col gap-3 flex-shrink-0 animate-in fade-in slide-in-from-left duration-200">
           
           {/* Quick Create Button */}
           <button
@@ -720,19 +731,19 @@ export const CalendarSection: React.FC = () => {
               setNewDate(selectedDate.toISOString().split('T')[0]);
               setShowAddModal(true);
             }}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all hover:scale-[1.01]"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer transition-all hover:scale-[1.01]"
           >
-            <PlusSquare className="h-4.5 w-4.5" />
+            <PlusSquare className="h-3.5 w-3.5" />
             <span>Schedule</span>
           </button>
 
           {/* Dynamic Interactive Mini Calendar picker */}
-          <div className="bg-white dark:bg-[#0c0d0e] border border-slate-100 dark:border-zinc-900 p-3 rounded-xl">
-            <div className="flex items-center justify-between mb-3 px-1">
-              <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">
+          <div className="bg-white dark:bg-[#0c0d0e] border border-slate-100 dark:border-zinc-900 p-2.5 rounded-xl">
+            <div className="flex items-center justify-between mb-2 px-1">
+              <span className="text-[11px] font-bold text-slate-800 dark:text-zinc-200">
                 {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5">
                 <button 
                   onClick={() => {
                     const d = new Date(selectedDate);
@@ -741,7 +752,7 @@ export const CalendarSection: React.FC = () => {
                   }}
                   className="p-1 rounded-md hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-500 cursor-pointer"
                 >
-                  <ChevronLeft className="h-3.5 w-3.5" />
+                  <ChevronLeft className="h-3 w-3" />
                 </button>
                 <button 
                   onClick={() => {
@@ -751,13 +762,13 @@ export const CalendarSection: React.FC = () => {
                   }}
                   className="p-1 rounded-md hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-500 cursor-pointer"
                 >
-                  <ChevronRight className="h-3.5 w-3.5" />
+                  <ChevronRight className="h-3 w-3" />
                 </button>
               </div>
             </div>
 
             {/* Mini Calendar Weekday Labels */}
-            <div className="grid grid-cols-7 gap-y-1 text-center text-[10px] font-bold text-slate-400 dark:text-zinc-500 mb-1.5">
+            <div className="grid grid-cols-7 gap-y-1 text-center text-[9px] font-bold text-slate-400 dark:text-zinc-500 mb-1">
               <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
             </div>
 
@@ -772,7 +783,7 @@ export const CalendarSection: React.FC = () => {
                   <button
                     key={idx}
                     onClick={() => setSelectedDate(day)}
-                    className={`text-[10px] font-semibold h-6.5 w-6.5 mx-auto rounded-full flex items-center justify-center cursor-pointer transition-all ${
+                    className={`text-[9px] font-semibold h-5.5 w-5.5 mx-auto rounded-full flex items-center justify-center cursor-pointer transition-all ${
                       isDaySelected 
                         ? 'bg-emerald-600 text-white dark:bg-emerald-500 dark:text-zinc-950 font-bold'
                         : isDayToday
@@ -790,52 +801,52 @@ export const CalendarSection: React.FC = () => {
           </div>
 
           {/* Filter / Calendars checklist (Google Calendar style) */}
-          <div className="bg-white dark:bg-[#0c0d0e] border border-slate-100 dark:border-zinc-900 p-4 rounded-xl">
-            <div className="flex items-center gap-2 text-slate-400 dark:text-zinc-500 text-[10px] uppercase tracking-wider font-bold mb-3">
-              <Sliders className="h-3 w-3" />
+          <div className="bg-white dark:bg-[#0c0d0e] border border-slate-100 dark:border-zinc-900 p-3 rounded-xl">
+            <div className="flex items-center gap-1.5 text-slate-400 dark:text-zinc-500 text-[9px] uppercase tracking-wider font-bold mb-2">
+              <Sliders className="h-2.5 w-2.5" />
               <span>My Calendars</span>
             </div>
 
-            <div className="space-y-3.5 text-xs font-semibold text-slate-700 dark:text-zinc-300">
-              <label className="flex items-center gap-3 cursor-pointer group">
+            <div className="space-y-2.5 text-[11px] font-semibold text-slate-700 dark:text-zinc-300">
+              <label className="flex items-center gap-2.5 cursor-pointer group">
                 <input 
                   type="checkbox" 
                   checked={showEvents}
                   onChange={() => setShowEvents(!showEvents)}
                   className="sr-only"
                 />
-                <div className={`h-4.5 w-4.5 rounded-md border flex items-center justify-center transition-all ${showEvents ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 dark:border-zinc-700'}`}>
-                  {showEvents && <Check className="h-3 w-3 stroke-[3px]" />}
+                <div className={`h-4 w-4 rounded-md border flex items-center justify-center transition-all ${showEvents ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 dark:border-zinc-700'}`}>
+                  {showEvents && <Check className="h-2.5 w-2.5 stroke-[3px]" />}
                 </div>
-                <span className="group-hover:text-slate-900 dark:group-hover:text-white">Scheduled Events</span>
+                <span className="group-hover:text-slate-900 dark:group-hover:text-white">Events</span>
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 ml-auto" />
               </label>
 
-              <label className="flex items-center gap-3 cursor-pointer group">
+              <label className="flex items-center gap-2.5 cursor-pointer group">
                 <input 
                   type="checkbox" 
                   checked={showFocusBlocks}
                   onChange={() => setShowFocusBlocks(!showFocusBlocks)}
                   className="sr-only"
                 />
-                <div className={`h-4.5 w-4.5 rounded-md border flex items-center justify-center transition-all ${showFocusBlocks ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-300 dark:border-zinc-700'}`}>
-                  {showFocusBlocks && <Check className="h-3 w-3 stroke-[3px]" />}
+                <div className={`h-4 w-4 rounded-md border flex items-center justify-center transition-all ${showFocusBlocks ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-300 dark:border-zinc-700'}`}>
+                  {showFocusBlocks && <Check className="h-2.5 w-2.5 stroke-[3px]" />}
                 </div>
-                <span className="group-hover:text-slate-900 dark:group-hover:text-white">AI Focus Blocks</span>
+                <span className="group-hover:text-slate-900 dark:group-hover:text-white">Focus Blocks</span>
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500 ml-auto" />
               </label>
 
-              <label className="flex items-center gap-3 cursor-pointer group">
+              <label className="flex items-center gap-2.5 cursor-pointer group">
                 <input 
                   type="checkbox" 
                   checked={showTasks}
                   onChange={() => setShowTasks(!showTasks)}
                   className="sr-only"
                 />
-                <div className={`h-4.5 w-4.5 rounded-md border flex items-center justify-center transition-all ${showTasks ? 'bg-violet-500 border-violet-500 text-white' : 'border-slate-300 dark:border-zinc-700'}`}>
-                  {showTasks && <Check className="h-3 w-3 stroke-[3px]" />}
+                <div className={`h-4 w-4 rounded-md border flex items-center justify-center transition-all ${showTasks ? 'bg-violet-500 border-violet-500 text-white' : 'border-slate-300 dark:border-zinc-700'}`}>
+                  {showTasks && <Check className="h-2.5 w-2.5 stroke-[3px]" />}
                 </div>
-                <span className="group-hover:text-slate-900 dark:group-hover:text-white">Committed Tasks</span>
+                <span className="group-hover:text-slate-900 dark:group-hover:text-white">Tasks</span>
                 <span className="h-1.5 w-1.5 rounded-full bg-violet-500 ml-auto" />
               </label>
             </div>
@@ -843,14 +854,24 @@ export const CalendarSection: React.FC = () => {
 
           {/* Conflicts Alert Block */}
           {conflicts.length > 0 && (
-            <div className="bg-red-500/10 border border-red-500/15 p-3.5 rounded-xl text-xs">
-              <div className="flex items-center gap-2 text-red-600 dark:text-red-400 font-bold mb-1">
-                <AlertTriangle className="h-3.5 w-3.5 animate-bounce" />
+            <div className="bg-rose-500/[0.04] dark:bg-rose-500/[0.03] border border-rose-500/15 dark:border-rose-500/10 p-2.5 rounded-xl text-[10.5px] shadow-sm animate-in fade-in duration-200">
+              <div className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 font-bold mb-0.5">
+                <AlertTriangle className="h-3 w-3 text-rose-500 dark:text-rose-400 animate-pulse shrink-0" />
                 <span>Overlap Detected</span>
               </div>
-              <p className="text-red-600/90 dark:text-red-400/80 leading-relaxed font-semibold">
-                Motive detected {conflicts.length} scheduling {conflicts.length === 1 ? 'conflict' : 'conflicts'}. Let AI auto-resolve or manually reschedule below.
+              <p className="text-slate-600 dark:text-zinc-400 leading-normal font-semibold mb-2">
+                Motive detected {conflicts.length} scheduling {conflicts.length === 1 ? 'conflict' : 'conflicts'}. Let AI auto-resolve or manually reschedule.
               </p>
+              <button
+                onClick={() => {
+                  setIsAiSidebarOpen(true);
+                  sendChatMessage("Motive has detected scheduling overlaps. Mo, please analyze my conflicts and propose a smart, auto-rescheduled workspace structure for today.");
+                }}
+                className="w-full py-1.5 px-2 bg-rose-50/80 hover:bg-rose-100/90 dark:bg-rose-950/20 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/50 dark:border-rose-900/30 rounded-lg font-bold text-[9.5px] transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.98] shadow-xs"
+              >
+                <Bot className="h-3 w-3" />
+                <span>Auto-Resolve with Mo</span>
+              </button>
             </div>
           )}
         </aside>
@@ -969,7 +990,7 @@ export const CalendarSection: React.FC = () => {
                       // Switching to Day Level view upon click matches standard behavior
                       setViewMode('day');
                     }}
-                    className={`border-b border-r border-slate-100 dark:border-zinc-850/80 p-2 min-h-[72px] sm:min-h-[85px] lg:min-h-[100px] flex flex-col gap-1 transition-all cursor-pointer ${
+                    className={`border-b border-r border-slate-100 dark:border-zinc-850/80 p-2 min-h-[50px] sm:min-h-[60px] lg:min-h-[75px] flex flex-col gap-1 transition-all cursor-pointer ${
                       isDaySelected 
                         ? 'bg-emerald-500/[0.12] dark:bg-emerald-500/30 shadow-inner z-10' 
                         : 'hover:bg-slate-50/50 dark:hover:bg-zinc-900/20'
@@ -1074,7 +1095,7 @@ export const CalendarSection: React.FC = () => {
               {/* Scrollable hour grid */}
               <div 
                 ref={timelineScrollRef}
-                className="flex-1 overflow-y-auto h-[550px]"
+                className="flex-1 overflow-y-auto h-[500px] xl:h-[calc(100vh-310px)]"
               >
                 <div className="grid grid-cols-8 relative select-none" style={{ height: '1440px' }}>
                   
@@ -1169,7 +1190,7 @@ export const CalendarSection: React.FC = () => {
               {/* Scrollable Timeline Grid */}
               <div 
                 ref={timelineScrollRef}
-                className="flex-1 overflow-y-auto h-[550px]"
+                className="flex-1 overflow-y-auto h-[500px] xl:h-[calc(100vh-310px)]"
               >
                 <div className="grid grid-cols-12 relative select-none" style={{ height: '1440px' }}>
                   

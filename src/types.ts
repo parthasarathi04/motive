@@ -148,6 +148,8 @@ export interface DailyBrief {
   focusAreas: string[];
   recommendation: string;
   closingMessage: string;
+  bullets?: string[];
+  suggestedAction?: string;
 }
 
 export interface WeeklyReview {
@@ -198,6 +200,11 @@ export interface PlannerResult {
     confidence?: number;
     action?: string;
     expectedBenefit?: string;
+    why?: string;
+    riskIfIgnored?: string;
+    momentumImpact?: number;
+    goalImpact?: string;
+    whyTimeSlot?: string;
   }[];
   conflicts: {
     id: string;

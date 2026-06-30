@@ -45,6 +45,12 @@ export interface Recommendation {
   goalId?: string;
   status: 'ACTIVE' | 'ACCEPTED' | 'DISMISSED';
   createdAt: string;
+  why?: string;
+  expectedBenefit?: string;
+  riskIfIgnored?: string;
+  momentumImpact?: number;
+  goalImpact?: string;
+  whyTimeSlot?: string;
 }
 
 export interface Artifact {
@@ -125,6 +131,7 @@ export interface WorkspaceState {
   syncEmail: () => Promise<void>;
   generateNewRecommendation: () => Promise<void>;
   clearAllData: () => void;
+  updateChatMessageActionStatus: (actionId: string, status: 'EXECUTED' | 'REJECTED') => void;
 }
 
 // Sub-Contexts for Modular Design
@@ -385,8 +392,31 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
 
   const syncGoogleCalendar = async (start?: string, end?: string) => {
     setIsSyncing(true);
+    const prevResult = plannerResult;
     try {
-      await ActionDispatcher.dispatch(userId, { type: 'SYNC_CALENDAR', payload: { start, end } });
+      const freshResult = await ActionDispatcher.dispatch(userId, { type: 'SYNC_CALENDAR', payload: { start, end } });
+      
+      // Perform Calendar Intelligence comparison
+      const response = await fetch('/api/ai/calendar-intelligence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prevPlannerResult: prevResult, currentPlannerResult: freshResult })
+      });
+      if (response.ok) {
+        const intel = await response.json();
+        
+        // Construct and insert the Calendar Intelligence card as a ChatMessage from Mo
+        const aiMsg: ChatMessage = {
+          id: 'calendar-intel-' + Math.random().toString(36).substr(2, 9),
+          sender: 'ai',
+          text: intel.text,
+          actions: intel.actions,
+          timestamp: new Date().toISOString()
+        };
+        
+        setChatMessages(prev => [...prev, aiMsg]);
+        setIsAiSidebarOpen(true);
+      }
     } catch (e) {
       console.error('Calendar sync failed:', e);
     } finally {
@@ -398,6 +428,9 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
   const [dailyBrief, setDailyBrief] = useState<DailyBrief | null>(null);
   const [weeklyReview, setWeeklyReview] = useState<any | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventCache[]>([]);
+  const [replanTrigger, setReplanTrigger] = useState(0);
+  const [dismissedRecommendationIds, setDismissedRecommendationIds] = useState<string[]>([]);
+  const [acceptedRecommendationIds, setAcceptedRecommendationIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!userId) {
@@ -417,7 +450,7 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
       calendarEvents,
       settings
     });
-  }, [goals, commitments, accounts, calendarEvents, settings]);
+  }, [goals, commitments, accounts, calendarEvents, settings, replanTrigger]);
 
   useEffect(() => {
     if (userId && plannerResult) {
@@ -426,13 +459,22 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
   }, [plannerResult, userId]);
 
   useEffect(() => {
-    if (goals.length === 0) return;
+    if (!userId) return;
     
+    const localTime = new Date();
+    const currentHour = localTime.getHours();
+
     // Daily brief
     fetch('/api/ai/daily-brief', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ goals, commitments })
+      body: JSON.stringify({ 
+        goals, 
+        commitments, 
+        plannerResult, 
+        userName: userProfile?.name || 'User',
+        currentHour 
+      })
     }).then(async res => {
       if (res.ok) setDailyBrief(await res.json());
     }).catch(e => console.error('Daily brief fetch error:', e));
@@ -445,10 +487,14 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
     }).then(async res => {
       if (res.ok) setWeeklyReview(await res.json());
     }).catch(e => console.error('Weekly review fetch error:', e));
-  }, [goals, commitments]);
+  }, [goals, commitments, plannerResult, userId, userProfile]);
 
   const generateNewRecommendation = async () => {
     if (!userId) return;
+    setDismissedRecommendationIds([]);
+    setAcceptedRecommendationIds([]);
+    setReplanTrigger(prev => prev + 1);
+    
     const events = await CalendarRepository.getEvents(userId);
     const freshResult = Planner.plan({
       currentUser: null,
@@ -484,29 +530,85 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
   }, [commitments]);
 
   const recommendations = useMemo<Recommendation[]>(() => {
-    return plannerResult.recommendations.map((r, idx) => ({
-      id: r.id || `derived-rec-${idx}`,
-      userId,
-      title: r.title,
-      reason: r.reason,
-      impact: r.impact,
-      confidence: r.severity === 'CRITICAL' ? 95 : (r.severity === 'WARNING' ? 70 : 45),
-      estimatedMinutes: 30,
-      status: 'ACTIVE',
-      createdAt: new Date().toISOString()
-    }));
-  }, [plannerResult.recommendations, userId]);
+    return plannerResult.recommendations
+      .filter((r, idx) => {
+        const id = r.id || `derived-rec-${idx}`;
+        return !dismissedRecommendationIds.includes(id) && !acceptedRecommendationIds.includes(id);
+      })
+      .map((r, idx) => ({
+        id: r.id || `derived-rec-${idx}`,
+        userId,
+        title: r.title,
+        reason: r.reason,
+        impact: r.impact,
+        confidence: r.severity === 'CRITICAL' ? 95 : (r.severity === 'WARNING' ? 70 : 45),
+        estimatedMinutes: 30,
+        status: 'ACTIVE',
+        createdAt: new Date().toISOString(),
+        why: r.why,
+        expectedBenefit: r.expectedBenefit,
+        riskIfIgnored: r.riskIfIgnored,
+        momentumImpact: r.momentumImpact,
+        goalImpact: r.goalImpact,
+        whyTimeSlot: r.whyTimeSlot
+      }));
+  }, [plannerResult.recommendations, userId, dismissedRecommendationIds, acceptedRecommendationIds]);
 
   const artifacts: Artifact[] = [];
 
   const acceptRecommendation = async (rec: any) => {
-    const matched = commitments.find(c => c.title.toLowerCase().includes(rec.title.split(' ')[0].toLowerCase()));
+    setAcceptedRecommendationIds(prev => [...prev, rec.id]);
+
+    // Let's resolve the recommendation based on keyword in its title or reason
+    const titleLower = rec.title.toLowerCase();
+    const matched = commitments.find(c => 
+      titleLower.includes(c.title.toLowerCase()) || 
+      c.title.toLowerCase().includes(titleLower.split(' ')[0])
+    );
+
     if (matched) {
-      await toggleCommitmentComplete(matched.id);
+      if (titleLower.includes('complete') || titleLower.includes('resolve') || titleLower.includes('done')) {
+        await toggleCommitmentComplete(matched.id);
+      } else if (titleLower.includes('reschedule') || titleLower.includes('move') || titleLower.includes('shift')) {
+        await updateCommitment(matched.id, {
+          scheduledStart: new Date().toISOString(),
+          status: 'SCHEDULED'
+        });
+      } else {
+        // Default to completing the commitment
+        await toggleCommitmentComplete(matched.id);
+      }
+    } else {
+      // If no matched commitment, let's create a commitment suggested by recommendation
+      const defaultGoal = goals[0];
+      await addCommitment({
+        title: rec.title,
+        type: 'FOCUS_BLOCK',
+        constraint: 'FLEXIBLE',
+        estimatedDuration: 45,
+        scheduledStart: new Date().toISOString(),
+        scheduledEnd: null,
+        completedAt: null,
+        source: 'MOTIVE',
+        status: 'PLANNED',
+        accountId: null,
+        goalLinks: defaultGoal ? [defaultGoal.id] : [],
+        dependencies: [],
+        importance: 'MEDIUM',
+        urgency: 'MEDIUM',
+        impact: 'MEDIUM',
+        energy: 'MEDIUM',
+        metadata: {}
+      }, defaultGoal?.id);
     }
+
+    setReplanTrigger(prev => prev + 1);
   };
 
-  const dismissRecommendation = async (id: string) => {};
+  const dismissRecommendation = async (id: string) => {
+    setDismissedRecommendationIds(prev => [...prev, id]);
+  };
+
   const acceptArtifact = async (artifact: Artifact) => {};
   const dismissArtifact = async (id: string) => {};
   const syncEmail = async () => {};
@@ -843,6 +945,23 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
     }
   };
 
+  const updateChatMessageActionStatus = (actionId: string, status: 'EXECUTED' | 'REJECTED') => {
+    setChatMessages(prev => prev.map(msg => {
+      if (msg.actions) {
+        return {
+          ...msg,
+          actions: msg.actions.map(action => {
+            if (action.id === actionId) {
+              return { ...action, status };
+            }
+            return action;
+          })
+        };
+      }
+      return msg;
+    }));
+  };
+
   const value: WorkspaceState = {
     currentUser,
     userId,
@@ -892,7 +1011,8 @@ export const WorkspaceProvider: React.FC<{ children: ReactNode }> = ({ children 
     syncGoogleCalendar,
     syncEmail,
     generateNewRecommendation,
-    clearAllData
+    clearAllData,
+    updateChatMessageActionStatus
   };
 
   return (

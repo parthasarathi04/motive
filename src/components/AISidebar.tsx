@@ -5,6 +5,7 @@ import {
   Sparkles, 
   Send, 
   Brain, 
+  Bot,
   RefreshCw, 
   ChevronRight, 
   Trophy, 
@@ -17,9 +18,59 @@ import {
   Info,
   CheckCircle2,
   XCircle,
-  Clock
+  Clock,
+  Check,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+const ThinkingSequence: React.FC = () => {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const timer1 = setTimeout(() => setStep(1), 600);
+    const timer2 = setTimeout(() => setStep(2), 1200);
+    const timer3 = setTimeout(() => setStep(3), 1800);
+    const timer4 = setTimeout(() => setStep(4), 2400);
+
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
+      clearTimeout(timer4);
+    };
+  }, []);
+
+  const steps = [
+    "Analyzing calendar...",
+    "Checking dependencies...",
+    "Calculating focus windows...",
+    "Preparing execution plan..."
+  ];
+
+  return (
+    <div className="space-y-1.5 font-mono text-[10.5px] leading-relaxed text-neutral-500 dark:text-zinc-400">
+      {steps.map((text, idx) => {
+        const isDone = step > idx;
+        const isActive = step === idx;
+        if (idx > step) return null;
+
+        return (
+          <div key={idx} className="flex items-center gap-2">
+            {isDone ? (
+              <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0 animate-scale-in" strokeWidth={3} />
+            ) : (
+              <Loader2 className="h-3 w-3 text-indigo-500 animate-spin shrink-0" />
+            )}
+            <span className={`${isDone ? 'text-neutral-700 dark:text-zinc-300 font-medium' : 'text-indigo-600 dark:text-indigo-400 font-bold'}`}>
+              {text}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export const AISidebar: React.FC = () => {
   const { 
@@ -33,7 +84,8 @@ export const AISidebar: React.FC = () => {
     addGoal,
     addCommitment,
     updateCommitment,
-    deleteCommitment
+    deleteCommitment,
+    updateChatMessageActionStatus
   } = useMotive();
 
   const isOpen = isAiSidebarOpen;
@@ -49,6 +101,7 @@ export const AISidebar: React.FC = () => {
   // Agentic States
   const [isAutoExecute, setIsAutoExecute] = useState(() => localStorage.getItem('mo_auto_execute') === 'true');
   const [executedActionIds, setExecutedActionIds] = useState<Record<string, 'EXECUTED' | 'REJECTED'>>({});
+  const [executingActionIds, setExecutingActionIds] = useState<Record<string, boolean>>({});
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -103,8 +156,17 @@ export const AISidebar: React.FC = () => {
           constraint: constraint || 'FLEXIBLE',
           estimatedDuration: estimatedDuration || 45,
           scheduledStart: scheduledStart || null,
-          origin: 'AI',
-          status: 'PLANNED'
+          source: 'AI',
+          status: 'PLANNED',
+          accountId: null,
+          dependencies: [],
+          importance: 'MEDIUM',
+          urgency: 'MEDIUM',
+          impact: 'MEDIUM',
+          energy: 'MEDIUM',
+          scheduledEnd: null,
+          completedAt: null,
+          metadata: {}
         }, goalId);
       } else if (action.type === 'RESCHEDULE_COMMITMENT') {
         const { id, scheduledStart } = action.data;
@@ -124,14 +186,20 @@ export const AISidebar: React.FC = () => {
   };
 
   const handleApproveAction = async (action: ProposedAction) => {
+    if (executingActionIds[action.id]) return;
+    setExecutingActionIds(prev => ({ ...prev, [action.id]: true }));
     const success = await executeAction(action);
     if (success) {
       setExecutedActionIds(prev => ({ ...prev, [action.id]: 'EXECUTED' }));
+      updateChatMessageActionStatus(action.id, 'EXECUTED');
     }
+    setExecutingActionIds(prev => ({ ...prev, [action.id]: false }));
   };
 
   const handleRejectAction = (actionId: string) => {
+    if (executingActionIds[actionId]) return;
     setExecutedActionIds(prev => ({ ...prev, [actionId]: 'REJECTED' }));
+    updateChatMessageActionStatus(actionId, 'REJECTED');
   };
 
   const handleSend = async (e?: React.FormEvent | React.KeyboardEvent) => {
@@ -248,7 +316,7 @@ export const AISidebar: React.FC = () => {
             {/* Header / Tabs */}
             <div className="p-4.5 border-b border-neutral-100 dark:border-zinc-900 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sparkles className="h-4.5 w-4.5 text-indigo-500 fill-indigo-500/15" />
+                <Bot className="h-4.5 w-4.5 text-indigo-500 fill-indigo-500/15" />
                 <span className="font-semibold text-sm tracking-wide font-sans text-neutral-800 dark:text-neutral-100">Mo Companion</span>
               </div>
 
@@ -303,6 +371,24 @@ export const AISidebar: React.FC = () => {
                         </p>
                       </div>
 
+                      {/* Daily Intelligence Briefing Bullets */}
+                      {dailyBrief.bullets && dailyBrief.bullets.length > 0 && (
+                        <div className="space-y-3">
+                          <h4 className="text-[10px] uppercase font-mono tracking-wider font-semibold text-neutral-500 dark:text-zinc-500 flex items-center gap-1.5">
+                            <Clock className="h-3.5 w-3.5 text-indigo-500" />
+                            Daily Intelligence Briefing
+                          </h4>
+                          <div className="bg-neutral-50 dark:bg-zinc-900/40 border border-neutral-200/40 dark:border-zinc-800/80 p-4.5 rounded-2xl space-y-3">
+                            {dailyBrief.bullets.map((bullet, idx) => (
+                              <div key={idx} className="flex items-start gap-2 text-xs text-neutral-700 dark:text-zinc-300 leading-relaxed font-medium">
+                                <span className="text-indigo-500 dark:text-indigo-400 font-bold shrink-0 mt-0.5">&bull;</span>
+                                <span>{bullet}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Today's Focus Areas */}
                       <div className="space-y-3">
                         <h4 className="text-[10px] uppercase font-mono tracking-wider font-semibold text-neutral-500 dark:text-zinc-500">Key Focus Objectives</h4>
@@ -326,6 +412,23 @@ export const AISidebar: React.FC = () => {
                           </p>
                         </div>
                       </div>
+
+                      {/* Actionable Suggested Action Button */}
+                      {dailyBrief.suggestedAction && (
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTab('chat');
+                              sendChatMessage(dailyBrief.suggestedAction || "Optimize today's schedule?");
+                            }}
+                            className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-xl text-xs font-bold font-sans tracking-wide shadow-sm transition-all duration-200 cursor-pointer flex items-center justify-center gap-2"
+                          >
+                            <Sparkles className="h-4 w-4 fill-white/10" />
+                            Suggested Action: {dailyBrief.suggestedAction}
+                          </button>
+                        </div>
+                      )}
 
                       {/* Closing message */}
                       <p className="text-[11px] font-mono italic text-neutral-500 dark:text-zinc-400 leading-normal text-center pt-3">
@@ -424,7 +527,7 @@ export const AISidebar: React.FC = () => {
                           <div className={`flex gap-3 ${isAi ? 'justify-start' : 'justify-end'}`}>
                             {isAi && (
                               <div className="h-8 w-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0">
-                                <Brain className="h-4.5 w-4.5" />
+                                <Bot className="h-4.5 w-4.5" />
                               </div>
                             )}
                             <div className="max-w-[85%] flex flex-col gap-1 items-end">
@@ -497,6 +600,41 @@ export const AISidebar: React.FC = () => {
                                           {action.type === 'CREATE_GOAL' && action.data.deadline && (
                                             <p className="text-[9.5px] font-mono text-neutral-400 dark:text-zinc-500 font-bold">Deadline: {action.data.deadline} &bull; {action.data.area}</p>
                                           )}
+                                          {action.type === 'CREATE_GOAL' && action.data.customCommitments && action.data.customCommitments.length > 0 && (
+                                            <div className="mt-2.5 pl-2.5 border-l-2 border-indigo-200 dark:border-zinc-800 space-y-1.5 max-w-md">
+                                              <p className="text-[9px] font-bold text-neutral-500 dark:text-zinc-400 uppercase tracking-wider">Planned Roadmap Nodes ({action.data.customCommitments.length}):</p>
+                                              <div className="space-y-1">
+                                                {action.data.customCommitments.map((comm: any, idx: number) => {
+                                                  const hasDeps = comm.dependsOn && comm.dependsOn.length > 0;
+                                                  return (
+                                                    <div key={comm.id || idx} className="text-[10px] text-neutral-600 dark:text-zinc-300">
+                                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-indigo-400 shrink-0" />
+                                                        <span className="font-semibold">{comm.title}</span>
+                                                        <span className="text-[8.5px] px-1 py-0.2 rounded-sm bg-neutral-100 dark:bg-zinc-800 font-mono text-neutral-400 dark:text-zinc-500 font-bold shrink-0">{comm.type}</span>
+                                                        {comm.estimatedDuration && (
+                                                          <span className="text-[8.5px] text-neutral-400 dark:text-zinc-500 shrink-0">({comm.estimatedDuration}m)</span>
+                                                        )}
+                                                      </div>
+                                                      {hasDeps && (
+                                                        <div className="pl-3 text-[8.5px] text-neutral-400 dark:text-zinc-500 flex items-center gap-1 mt-0.5 flex-wrap">
+                                                          <span>Requires:</span>
+                                                          {comm.dependsOn.map((depId: string, dIdx: number) => {
+                                                            const depComm = action.data.customCommitments.find((c: any) => c.id === depId);
+                                                            return (
+                                                              <span key={depId} className="px-1 py-0.2 rounded bg-neutral-50 dark:bg-zinc-900 border border-neutral-100 dark:border-zinc-850 font-medium text-indigo-500 dark:text-indigo-400">
+                                                                {depComm ? depComm.title : depId}
+                                                              </span>
+                                                            );
+                                                          })}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
 
@@ -505,15 +643,24 @@ export const AISidebar: React.FC = () => {
                                           <>
                                             <button
                                               type="button"
+                                              disabled={executingActionIds[action.id]}
                                               onClick={() => handleApproveAction(action)}
-                                              className="px-2.5 py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                                              className="px-2.5 py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg transition-all cursor-pointer shadow-xs flex items-center gap-1 disabled:cursor-not-allowed"
                                             >
-                                              Approve
+                                              {executingActionIds[action.id] ? (
+                                                <>
+                                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                                  <span>Applying...</span>
+                                                </>
+                                              ) : (
+                                                <span>Approve</span>
+                                              )}
                                             </button>
                                             <button
                                               type="button"
+                                              disabled={executingActionIds[action.id]}
                                               onClick={() => handleRejectAction(action.id)}
-                                              className="px-2.5 py-1 text-[10px] font-bold bg-neutral-100 dark:bg-zinc-800 hover:bg-neutral-200 dark:hover:bg-zinc-750 text-neutral-600 dark:text-zinc-350 rounded-lg transition-all cursor-pointer"
+                                              className="px-2.5 py-1 text-[10px] font-bold bg-neutral-100 dark:bg-zinc-800 hover:bg-neutral-200 dark:hover:bg-zinc-750 disabled:opacity-50 text-neutral-600 dark:text-zinc-350 rounded-lg transition-all cursor-pointer disabled:cursor-not-allowed"
                                             >
                                               Reject
                                             </button>
@@ -540,12 +687,12 @@ export const AISidebar: React.FC = () => {
                       );
                     })}
                     {isChatLoading && (
-                      <div className="flex gap-3 justify-start animate-pulse">
+                      <div className="flex gap-3 justify-start">
                         <div className="h-8 w-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0">
-                          <Brain className="h-4.5 w-4.5 animate-bounce" />
+                          <Bot className="h-4.5 w-4.5 animate-pulse" />
                         </div>
-                        <div className="px-4 py-3 rounded-2xl text-xs bg-neutral-150/80 dark:bg-zinc-900/80 text-neutral-500 font-mono rounded-tl-none border border-neutral-200/20 dark:border-zinc-800/50">
-                          Evaluating roadmap variables...
+                        <div className="px-4 py-3.5 rounded-2xl bg-neutral-50 dark:bg-zinc-900/60 text-neutral-600 dark:text-zinc-300 rounded-tl-none border border-neutral-200/40 dark:border-zinc-800/80 shadow-xs min-w-[210px]">
+                          <ThinkingSequence />
                         </div>
                       </div>
                     )}

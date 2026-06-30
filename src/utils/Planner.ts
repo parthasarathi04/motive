@@ -436,7 +436,21 @@ export class Planner {
 
 
     // --- 7. DETECT RECOMMENDATIONS (Deterministic Engine) ---
-    const recommendations: { id: string; title: string; reason: string; impact: string; severity: 'INFO' | 'WARNING' | 'CRITICAL'; confidence?: number; action?: string; expectedBenefit?: string }[] = [];
+    const recommendations: {
+      id: string;
+      title: string;
+      reason: string;
+      impact: string;
+      severity: 'INFO' | 'WARNING' | 'CRITICAL';
+      confidence?: number;
+      action?: string;
+      expectedBenefit?: string;
+      why?: string;
+      riskIfIgnored?: string;
+      momentumImpact?: number;
+      goalImpact?: string;
+      whyTimeSlot?: string;
+    }[] = [];
 
     // Check for overlapping slots
     conflicts.forEach((conf, idx) => {
@@ -455,7 +469,12 @@ export class Planner {
             severity: 'CRITICAL',
             confidence: 94,
             action: 'RESCHEDULE_COMMITMENT',
-            expectedBenefit: `Clears overlap conflict and reserves dedicated focus at ${slotTimeStr}`
+            expectedBenefit: `Clears overlap conflict and reserves dedicated focus at ${slotTimeStr}`,
+            why: `A scheduling overlap was detected between your planned commitments. Standard planning safety rules forbid double-booking focus blocks.`,
+            riskIfIgnored: `This overlap will likely cause context-switching fatigue, missed preparation time, and could lead to canceling one of the high-priority activities.`,
+            momentumImpact: 8,
+            goalImpact: `Clears the immediate path for linked objectives, ensuring continuous momentum without administrative drag.`,
+            whyTimeSlot: `This slot is selected because it is your highest availability window today (${slotTimeStr}) and has no overlapping team events.`
           });
         }
       }
@@ -473,7 +492,12 @@ export class Planner {
           severity: 'CRITICAL',
           confidence: 91,
           action: 'CREATE_COMMITMENT',
-          expectedBenefit: 'Schedules a deep work focus block to resolve immediate sequence bottleneck'
+          expectedBenefit: 'Schedules a deep work focus block to resolve immediate sequence bottleneck',
+          why: `Our health analyzer flags this goal as Off Track because there are no active, scheduled commitments mapped to its critical path within the next 48 hours.`,
+          riskIfIgnored: `The deadline of this objective is highly endangered. Continued delay on the critical path will trigger cascading delays across all secondary dependencies.`,
+          momentumImpact: 25,
+          goalImpact: `Directly elevates the health rating of "${goal.title}" by replacing passive delay with structured action.`,
+          whyTimeSlot: `Placed during your peak cognitive energy period where deep focus is maximized and distractions are minimized.`
         });
       } else if (health && health.status === 'AT_RISK') {
         recommendations.push({
@@ -484,7 +508,12 @@ export class Planner {
           severity: 'WARNING',
           confidence: 85,
           action: 'RESCHEDULE_COMMITMENT',
-          expectedBenefit: 'Locks in next immediate milestone action to secure the target deadline'
+          expectedBenefit: 'Locks in next immediate milestone action to secure the target deadline',
+          why: `This objective is flagged At Risk because the remaining workload exceeds the remaining focus slots left before the target milestone deadline.`,
+          riskIfIgnored: `Failure to secure this block will result in a hard timeline slippage or a low-quality rushed completion near the deadline.`,
+          momentumImpact: 12,
+          goalImpact: `Secures the timeline buffer for "${goal.title}" and safeguards your historical completion rate.`,
+          whyTimeSlot: `Allocated in the upcoming available execution window to leave ample contingency buffer before the milestone target.`
         });
       }
     });
@@ -500,9 +529,200 @@ export class Planner {
         severity: 'WARNING',
         confidence: 88,
         action: 'COMPLETE_COMMITMENT',
-        expectedBenefit: 'Restores high performance consistency and boosts momentum'
+        expectedBenefit: 'Restores high performance consistency and boosts momentum',
+        why: `Your Execution Momentum index is currently low (${executionMomentum}). Restoring momentum is best achieved through quick, highly achievable milestones to break inertia.`,
+        riskIfIgnored: `Allowing your momentum score to remain low often leads to planning paralysis and a higher risk of goal abandonment.`,
+        momentumImpact: 15,
+        goalImpact: `Drives active execution and clears smaller administrative tasks, unblocking high-leverage focus sessions.`,
+        whyTimeSlot: `Scheduled for immediate execution to break the friction of procrastination and rebuild focus momentum early in the day.`
       });
     }
+
+    // ==========================================
+    // MO ENGINE INTELLIGENCE: 4 ADVANCED LOGIC ENGINES
+    // ==========================================
+
+    // --- ENGINE 1: Circadian Rhythm Energy-Task Mismatch Check ---
+    activeScheduled.forEach(comm => {
+      if (!comm.scheduledStart) return;
+      const startHour = new Date(comm.scheduledStart).getHours();
+      let circadianEnergy: 'LOW' | 'MEDIUM' | 'HIGH' = 'MEDIUM';
+      
+      if (startHour >= 9 && startHour < 13) {
+        circadianEnergy = 'HIGH';
+      } else if (startHour >= 13 && startHour < 15) {
+        circadianEnergy = 'LOW';
+      } else if (startHour >= 15 && startHour < 18) {
+        circadianEnergy = 'MEDIUM';
+      } else {
+        circadianEnergy = 'LOW';
+      }
+
+      // High-energy focus block or task scheduled during low-energy period (e.g. Post-Lunch Dip or Late Night)
+      if (comm.energy === 'HIGH' && circadianEnergy === 'LOW') {
+        recommendations.push({
+          id: `rec-energy-mismatch-high-${comm.id}`,
+          title: `Optimize Energy Alignment: "${comm.title}"`,
+          reason: `High energy task scheduled during your biological low-energy dip.`,
+          impact: 'Improves execution efficiency & prevents burnout',
+          severity: 'WARNING',
+          confidence: 89,
+          action: 'RESCHEDULE_COMMITMENT',
+          expectedBenefit: `Rescheduling to a peak focus window (9 AM - 1 PM) ensures maximum mental clarity and reduced cognitive friction.`,
+          why: `Your body's natural circadian rhythm enters a recovery phase during this hour. Forcing high-cognitive deep work during a low-energy dip often leads to low quality output and mental fatigue.`,
+          riskIfIgnored: `You will experience higher executive fatigue and the task will likely take up to twice as long to complete compared to peak hours.`,
+          momentumImpact: 10,
+          goalImpact: `Protects high-stakes objectives by executing complex milestones during your highest cognitive performance windows.`,
+          whyTimeSlot: `Suggested moving to the next available peak cognitive period between 9:00 AM and 1:00 PM.`
+        });
+      }
+      
+      // Low-energy/admin tasks taking up precious morning peak hours (waste of cognitive capital)
+      if (comm.energy === 'LOW' && circadianEnergy === 'HIGH' && comm.impact !== 'HIGH') {
+        recommendations.push({
+          id: `rec-energy-mismatch-waste-${comm.id}`,
+          title: `Protect Peak Morning Focus: "${comm.title}"`,
+          reason: `Low impact, low-energy task occupying your peak morning high-performance window.`,
+          impact: 'Shields cognitive capital for deep focus work',
+          severity: 'INFO',
+          confidence: 82,
+          action: 'RESCHEDULE_COMMITMENT',
+          expectedBenefit: `Saves peak morning focus (9 AM - 1 PM) for high-impact strategic tasks, pushing low-energy work to the afternoon.`,
+          why: `Your morning hours are highly valuable. Squandering high-cognitive capability on simple emails, administrative tasks, or clerical coordination leaves you drained when tackling complex objectives later.`,
+          riskIfIgnored: `You may suffer from decision fatigue by the time you address your most important goals in the afternoon.`,
+          momentumImpact: 5,
+          goalImpact: `Optimizes timeline velocity by ensuring hard technical or creative problems are completed early.`,
+          whyTimeSlot: `Suggested moving this task to the post-lunch dip (1 PM - 3 PM) when cognitive demands are lower.`
+        });
+      }
+    });
+
+    // --- ENGINE 2: Cascading Downstream Delay Risk Analyzer ---
+    commitments.forEach(comm => {
+      if (comm.status === 'COMPLETED' || comm.status === 'CANCELLED') return;
+      
+      const isRescheduledMany = comm.metadata?.rescheduleCount && comm.metadata.rescheduleCount > 1;
+      const isOverdue = comm.scheduledStart && new Date(comm.scheduledStart) < currentTime;
+      
+      if (isRescheduledMany || isOverdue) {
+        // Find downstream dependencies
+        const downstreams = commitments.filter(other => 
+          other.status !== 'COMPLETED' && 
+          other.status !== 'CANCELLED' && 
+          other.dependencies && 
+          other.dependencies.includes(comm.id)
+        );
+
+        if (downstreams.length > 0) {
+          const downstreamTitles = downstreams.map(d => `"${d.title}"`).join(', ');
+          
+          recommendations.push({
+            id: `rec-cascade-delay-${comm.id}`,
+            title: `Address Bottleneck: "${comm.title}"`,
+            reason: `Delaying this task triggers a cascading schedule bottleneck for downstream work.`,
+            impact: 'Clears sequence blockages & prevents timeline collapse',
+            severity: 'CRITICAL',
+            confidence: 93,
+            action: 'COMPLETE_COMMITMENT',
+            expectedBenefit: `Completing or unblocking this prerequisite immediately releases ${downstreams.length} dependent task(s): ${downstreamTitles}.`,
+            why: `Motive has identified "${comm.title}" as a critical sequence gatekeeper. Downstream dependencies cannot progress because their prerequisite timing or logic is locked.`,
+            riskIfIgnored: `Continued delay will paralyze your downstream timeline, forcing a massive multi-day reschedule of your entire calendar.`,
+            momentumImpact: 18,
+            goalImpact: `Unlocks dependent paths for linked goals, resolving execution paralysis on the critical path.`,
+            whyTimeSlot: `Needs immediate resolution to restore fluid pipeline velocity.`
+          });
+        }
+      }
+    });
+
+    // --- ENGINE 3: Fatigue & Overwork Guard (Cognitive Load Guard) ---
+    let totalHighEnergyMinutesToday = 0;
+    let consecutiveHighEnergyMinutes = 0;
+    let maxConsecutiveHighEnergy = 0;
+    
+    const sortedScheduledToday = todayCommitments
+      .filter(c => c.scheduledStart && c.scheduledEnd && c.status !== 'CANCELLED' && c.status !== 'COMPLETED')
+      .sort((a, b) => new Date(a.scheduledStart!).getTime() - new Date(b.scheduledStart!).getTime());
+
+    for (let i = 0; i < sortedScheduledToday.length; i++) {
+      const c = sortedScheduledToday[i];
+      if (c.energy === 'HIGH' || c.type === 'FOCUS_BLOCK') {
+        totalHighEnergyMinutesToday += c.estimatedDuration;
+        
+        if (i < sortedScheduledToday.length - 1) {
+          const next = sortedScheduledToday[i+1];
+          const currentEnd = new Date(c.scheduledEnd!).getTime();
+          const nextStart = new Date(next.scheduledStart!).getTime();
+          const gapMinutes = (nextStart - currentEnd) / (60 * 1000);
+          
+          if (gapMinutes <= 10 && (next.energy === 'HIGH' || next.type === 'FOCUS_BLOCK')) {
+            consecutiveHighEnergyMinutes += c.estimatedDuration;
+          } else {
+            consecutiveHighEnergyMinutes = 0;
+          }
+          maxConsecutiveHighEnergy = Math.max(maxConsecutiveHighEnergy, consecutiveHighEnergyMinutes);
+        }
+      }
+    }
+
+    if (totalHighEnergyMinutesToday > 300 || maxConsecutiveHighEnergy > 150) {
+      recommendations.push({
+        id: 'rec-fatigue-guard',
+        title: 'Insert Cognitive Decompression Break',
+        reason: `Excessive back-to-back high cognitive load detected on today's schedule.`,
+        impact: 'Protects mental stamina & output quality',
+        severity: 'WARNING',
+        confidence: 87,
+        action: 'CREATE_COMMITMENT',
+        expectedBenefit: 'Injects a 15-30 minute restorative window to replenish dopamine and clear cognitive load.',
+        why: `You have planned over 5 hours of intensive high-focus execution today. Human performance curves demonstrate a severe drop-off in decision quality and creative capacity after 2.5 hours of continuous deep work without structured rest.`,
+        riskIfIgnored: `Severe mental fatigue, elevated error rates during late-day tasks, and potential burnout that drags down tomorrow's velocity.`,
+        momentumImpact: 10,
+        goalImpact: `Sustains high execution consistency over a multi-day horizon rather than single-day sprints.`,
+        whyTimeSlot: `Best placed immediately following your second continuous focus session to allow physical movement or mental rest.`
+      });
+    }
+
+    // --- ENGINE 4: Goal Timeline Velocity / Slippage Safeguard ---
+    goals.forEach(goal => {
+      if (goal.status === 'COMPLETED' || goal.status === 'ARCHIVED') return;
+      
+      const deadlineDate = new Date(goal.deadline);
+      const msLeft = deadlineDate.getTime() - currentTime.getTime();
+      const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+      
+      if (daysLeft > 0 && daysLeft <= 14) {
+        const linkedIncomplete = commitments.filter(c => 
+          c.goalLinks && 
+          c.goalLinks.includes(goal.id) && 
+          c.status !== 'COMPLETED' && 
+          c.status !== 'CANCELLED'
+        );
+        
+        const totalEstimatedMinutes = linkedIncomplete.reduce((sum, c) => sum + (c.estimatedDuration || 30), 0);
+        const totalEstimatedHours = totalEstimatedMinutes / 60;
+        
+        const maxAvailableHours = daysLeft * 3.5;
+        
+        if (totalEstimatedHours > maxAvailableHours) {
+          recommendations.push({
+            id: `rec-deadline-buffer-${goal.id}`,
+            title: `Timeline Deficit Alert: "${goal.title}"`,
+            reason: `Workload density exceeds safe scheduling threshold for remaining time.`,
+            impact: 'Prevents target deadline failure',
+            severity: 'CRITICAL',
+            confidence: 90,
+            action: 'CREATE_COMMITMENT',
+            expectedBenefit: `Forces restructuring or delegating of tasks to fit the tight ${daysLeft}-day milestone window.`,
+            why: `Motive analyzed the total time remaining. "${goal.title}" requires at least ${totalEstimatedHours.toFixed(1)} hours of deep work, but only ${maxAvailableHours.toFixed(1)} capacity hours remain before deadline under balanced planning conditions.`,
+            riskIfIgnored: `You will miss the objective deadline or be forced to execute a severely compromised, low-quality rush job at the final hour.`,
+            momentumImpact: 20,
+            goalImpact: `Directly protects milestone integrity and prevents systemic delays across related goal clusters.`,
+            whyTimeSlot: `Must be addressed immediately through scoping reduction or priority reallocation.`
+          });
+        }
+      }
+    });
 
     // Default if clean
     if (recommendations.length === 0) {
@@ -513,7 +733,12 @@ export class Planner {
         impact: 'High Consistency Streak',
         severity: 'INFO',
         confidence: 99,
-        expectedBenefit: 'Maintains elite high performance consistency score'
+        expectedBenefit: 'Maintains elite high performance consistency score',
+        why: `Your execution index indicates highly synchronized planning. Every commitment is properly mapped, balanced, and free of scheduling conflicts.`,
+        riskIfIgnored: `Deviating from the planned sequence risks introducing scheduling conflicts or late-day fatigue.`,
+        momentumImpact: 5,
+        goalImpact: `Protects the overall stability of all active objectives and secures your streak.`,
+        whyTimeSlot: `Continuous alignment across your scheduled day ensures high efficiency with minimal overhead.`
       });
     }
 

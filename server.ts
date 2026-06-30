@@ -58,12 +58,20 @@ async function generateContentWithRetry(ai: GoogleGenAI, params: any, maxRetries
     } catch (err: any) {
       attempt++;
       const errMsg = err instanceof Error ? err.message : String(err);
+      // Fail fast immediately on quota limits or rate limiting so smart fallback responses are returned instantly
+      const isQuotaLimit = errMsg.includes('429') || 
+                           errMsg.includes('Quota exceeded') || 
+                           errMsg.includes('limit') || 
+                           errMsg.includes('RESOURCE_EXHAUSTED') ||
+                           errMsg.toLowerCase().includes('quota');
+
+      if (isQuotaLimit) {
+        console.warn(`[Gemini Quota/Limit Error]: Failing fast to serve rich offline fallback. Error: ${errMsg}`);
+        throw err;
+      }
+
       const isTransient = errMsg.includes('503') || 
                           errMsg.includes('UNAVAILABLE') || 
-                          errMsg.includes('429') || 
-                          errMsg.includes('Quota exceeded') || 
-                          errMsg.includes('limit') || 
-                          errMsg.includes('RESOURCE_EXHAUSTED') ||
                           errMsg.toLowerCase().includes('high demand') ||
                           errMsg.toLowerCase().includes('temporary');
                           
@@ -267,12 +275,12 @@ Respond with raw JSON only.`;
   } catch (err) {
     logGeminiWarning('Gemini recommendation', err);
     res.json({
-      title: `Review commitments for "${goals[0].title}"`,
+      title: goals[0] ? `Review commitments for "${goals[0].title}"` : "Review your priority commitments",
       reason: "Reviewing these restores your daily momentum.",
       impact: "+10 Momentum",
       confidence: 88,
       estimatedMinutes: 10,
-      goalId: goals[0].id,
+      goalId: goals[0]?.id || null,
       status: "ACTIVE"
     });
   }
@@ -280,43 +288,100 @@ Respond with raw JSON only.`;
 
 // 3. Daily Brief Endpoint
 app.post('/api/ai/daily-brief', async (req, res) => {
-  const { goals = [], commitments = [] } = req.body;
+  const { goals = [], commitments = [], plannerResult, userName = 'User', currentHour } = req.body;
+
+  let greetingWord = "Good Morning";
+  if (currentHour !== undefined) {
+    const hr = Number(currentHour);
+    if (hr >= 5 && hr < 12) {
+      greetingWord = "Good Morning";
+    } else if (hr >= 12 && hr < 17) {
+      greetingWord = "Good Afternoon";
+    } else if (hr >= 17 && hr < 22) {
+      greetingWord = "Good Evening";
+    } else {
+      greetingWord = "Good Night";
+    }
+  }
 
   const ai = getAIClient();
   if (!ai) {
-    // Elegant fallback summary
+    // Elegant fallback summary matching all requirements
     const hasGoals = goals.length > 0;
-    const pendingCommitments = commitments.filter((c: any) => c.status !== 'COMPLETED').length;
+    const momentum = plannerResult?.executionMomentum ?? 60;
+    const todayCommsCount = plannerResult?.todayCommitments?.length ?? commitments.filter((c: any) => {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const dateStr = c.scheduledStart ? c.scheduledStart.split('T')[0] : (c.startTime ? c.startTime.split('T')[0] : null);
+      return dateStr === todayStr && c.status !== 'CANCELLED';
+    }).length;
+    
+    const deadlinesCount = plannerResult?.upcomingDeadlines?.length ?? 0;
+    const conflictsCount = plannerResult?.conflicts?.length ?? 0;
+    const focusTimeMins = plannerResult?.availableFocusSlots?.reduce((acc: number, s: any) => acc + s.duration, 0) ?? 240;
+    const focusTimeHours = (focusTimeMins / 60).toFixed(1);
+    const topRec = plannerResult?.recommendations?.[0]?.title ?? (hasGoals ? `Advance "${goals[0].title}"` : "Define your first execution goal");
+    
+    const bullets = [
+      `Commitments: ${todayCommsCount} commitment${todayCommsCount !== 1 ? 's' : ''} planned for execution today.`,
+      deadlinesCount > 0 
+        ? `Deadlines: ${deadlinesCount} upcoming goal deadline${deadlinesCount !== 1 ? 's' : ''} within the week.`
+        : "Deadlines: No goal deadlines approaching in the immediate 7-day window.",
+      conflictsCount > 0
+        ? `Conflicts: Detected ${conflictsCount} active conflict${conflictsCount !== 1 ? 's' : ''} requiring review.`
+        : "Conflicts: Schedule is clear of overlaps and double-bookings.",
+      `Focus Time: ${focusTimeHours} hours of deep focus windows available today.`,
+      `Momentum: Execution momentum is stable at ${momentum} (${momentum >= 75 ? 'Excellent' : 'Stable'}).`,
+      `Top Strategic Recommendation: ${topRec}.`
+    ];
 
     return res.json({
-      greeting: "Good Morning",
+      greeting: `${greetingWord}, ${userName}`,
       summary: hasGoals 
-        ? `You have ${goals.length} active goal${goals.length > 1 ? 's' : ''} currently underway. Your schedule is clear of immediate calendar conflicts, but you have ${pendingCommitments} planned commitments awaiting execution.` 
-        : "Welcome to Motive. You have no active goals yet. Let's start by planning your direction for the week.",
+        ? `You have ${goals.length} active goal${goals.length > 1 ? 's' : ''} underway. Your velocity sits at ${momentum} Execution Momentum.`
+        : "Welcome to Motive. Start your journey by defining your first execution goal.",
       focusAreas: hasGoals 
         ? goals.slice(0, 3).map((g: any) => g.title) 
-        : ["Establish execution goals", "Connect Google Calendar", "Enable Email sync"],
-      recommendation: hasGoals 
-        ? `Execute next best action for "${goals[0].title}" to boost your execution score.` 
-        : "Create your first goal to get customized AI planning.",
-      closingMessage: "Stay focused. Small inputs lead to massive compounding outputs."
+        : ["Goal Setting", "Time Auditing"],
+      recommendation: topRec,
+      closingMessage: "Execution is the ultimate differentiator. Small, structured wins compound daily.",
+      bullets,
+      suggestedAction: "Optimize today's schedule?"
     });
   }
 
   try {
-    const prompt = `You are Motive AI, the user's executive assistant. Summarize today's agenda and focus.
+    const prompt = `You are Motive AI, the user's premium executive assistant. Summarize today's agenda, achievements, conflicts, and focus.
+The user's actual name to address them with is "${userName}".
+The current time of day greeting word is "${greetingWord}".
+
 Current Goals: ${JSON.stringify(goals)}
 Current Commitments: ${JSON.stringify(commitments)}
+Planner Statistics:
+- Execution Momentum: ${plannerResult?.executionMomentum || 60}
+- Today's Commitments count: ${plannerResult?.todayCommitments?.length || 0}
+- Upcoming Deadlines: ${JSON.stringify(plannerResult?.upcomingDeadlines || [])}
+- Calendar Conflicts: ${JSON.stringify(plannerResult?.conflicts || [])}
+- Available Focus Slots: ${JSON.stringify(plannerResult?.availableFocusSlots || [])}
+- Top Recommendation: ${JSON.stringify(plannerResult?.recommendations?.[0] || null)}
 
-Return ONLY a valid JSON object matching this schema. No markdown, no code blocks:
+Return ONLY a valid JSON object matching this schema. No markdown, no code blocks, no trailing comments:
 {
-  "greeting": "Friendly premium greeting (e.g. Good Morning, Partha)",
+  "greeting": "Friendly premium greeting combining the time-of-day word and actual username, e.g. '${greetingWord}, ${userName}'",
   "summary": "1-2 elegant sentences summarizing what changed, the state of their schedule, and overall risk.",
   "focusAreas": ["Up to 3 high-level core focus strings"],
   "recommendation": "The absolute most urgent recommendation theme",
-  "closingMessage": "An inspiring, thoughtful closing thought."
+  "closingMessage": "An inspiring, thoughtful closing thought.",
+  "bullets": [
+    "A concise bullet detailing Today's commitments and schedule density",
+    "A concise bullet detailing Upcoming deadlines and urgency",
+    "A concise bullet detailing Calendar conflicts or confirming schedule is conflict-free",
+    "A concise bullet detailing Focus time available",
+    "A concise bullet detailing Execution Momentum and recent trend",
+    "A concise bullet detailing the Top recommendation for action"
+  ],
+  "suggestedAction": "One suggested action string (e.g. 'Optimize today\\'s schedule?')"
 }
-Respond with raw JSON only.`;
+Respond with raw JSON only. Do not wrap in markdown \`\`\`json blocks.`;
 
     const response = await generateContentWithRetry(ai, {
       model: 'gemini-3.5-flash',
@@ -331,12 +396,23 @@ Respond with raw JSON only.`;
     res.json(parsed);
   } catch (err) {
     logGeminiWarning('Gemini daily brief', err);
+    const hasGoals = goals.length > 0;
+    const momentum = plannerResult?.executionMomentum ?? 60;
     res.json({
-      greeting: "Good Day",
+      greeting: `${greetingWord}, ${userName}`,
       summary: "Your schedule is loaded and ready. Let's make purposeful strides toward your current goals.",
       focusAreas: goals.length > 0 ? goals.map((g: any) => g.title) : ["Goal Setting"],
       recommendation: "Review and complete today's focus commitments.",
-      closingMessage: "Execution is the key to clarity."
+      closingMessage: "Execution is the key to clarity.",
+      bullets: [
+        "Commitments: Check your active tasks listed under your daily schedule.",
+        "Deadlines: Maintain awareness of objective targets and timelines.",
+        "Conflicts: Ensure calendar blocks do not overlap.",
+        "Focus Time: Reserve dedicated slots for high cognitive tasks.",
+        `Momentum: Current score is ${momentum}.`,
+        "Top Strategic Recommendation: Follow planned roadmap sequences."
+      ],
+      suggestedAction: "Optimize today's schedule?"
     });
   }
 });
@@ -396,6 +472,276 @@ Respond with raw JSON only.`;
   }
 });
 
+// 5. Chat Endpoint (AI Sidebar) - Offline Fallback Function
+function fallbackOfflineChat(message: string, goals: any[], commitments: any[]): { text: string; actions: any[] } {
+  const msgLower = message.toLowerCase();
+  let reply = "I am ready to help you coordinate your execution path. ";
+  let actions: any[] = [];
+  
+  if (msgLower.includes('visa') || msgLower.includes('france')) {
+    reply = "For your **France Visa** goal, the most critical bottleneck is uploading your passport photo and bank statements. Once those physical artifacts are scanned, your visa appointment commitment will be unlocked. I've prepared a 15-minute Focus Block tonight to complete this. Would you like to schedule it?";
+    actions = [{
+      id: 'action_visa_' + Math.random().toString(36).substr(2, 9),
+      type: 'CREATE_COMMITMENT',
+      description: 'Schedule Focus Block: Upload Passport & Bank Documents',
+      data: {
+        title: 'Upload Passport & Bank Documents',
+        type: 'FOCUS_BLOCK',
+        constraint: 'FLEXIBLE',
+        estimatedDuration: 15,
+        importance: 'HIGH',
+        urgency: 'HIGH',
+        origin: 'AI'
+      },
+      status: 'PENDING'
+    }];
+  } else if (msgLower.includes('add goal') || msgLower.includes('create goal') || msgLower.includes('new goal')) {
+    const match = message.match(/(?:add|create|new) goal\s+["']?([^"'\n]+)["']?/i);
+    const title = match ? match[1] : "New Strategic Outcome";
+    
+    // Auto-plan custom commitments representing the roadmap of nodes
+    let customCommitments = [
+      {
+        id: 'temp_kickstart',
+        title: `Kickstart: Define Strategy for "${title}"`,
+        type: 'FOCUS_BLOCK',
+        constraint: 'FLEXIBLE',
+        estimatedDuration: 45,
+        importance: 'HIGH',
+        urgency: 'HIGH',
+        dependsOn: [],
+        scheduledStart: new Date(Date.now() + 1 * 3600 * 1000).toISOString() // 1 hour later
+      },
+      {
+        id: 'temp_execution',
+        title: `Core Execution & Research: ${title}`,
+        type: 'TASK',
+        constraint: 'FLEXIBLE',
+        estimatedDuration: 90,
+        importance: 'HIGH',
+        urgency: 'MEDIUM',
+        dependsOn: ['temp_kickstart'],
+        scheduledStart: new Date(Date.now() + 24 * 3600 * 1000).toISOString() // 1 day later
+      },
+      {
+        id: 'temp_review',
+        title: `Milestone Progress Review: ${title}`,
+        type: 'TASK',
+        constraint: 'FLEXIBLE',
+        estimatedDuration: 30,
+        importance: 'MEDIUM',
+        urgency: 'MEDIUM',
+        dependsOn: ['temp_execution'],
+        scheduledStart: new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString() // 3 days later
+      }
+    ];
+
+    if (title.toLowerCase().includes('visa') || title.toLowerCase().includes('france')) {
+      customCommitments = [
+        {
+          id: 'temp_docs',
+          title: 'Compile Passport, Bank Statements & Photos',
+          type: 'TASK',
+          constraint: 'FLEXIBLE',
+          estimatedDuration: 45,
+          importance: 'HIGH',
+          urgency: 'HIGH',
+          dependsOn: [],
+          scheduledStart: new Date(Date.now() + 2 * 3600 * 1000).toISOString()
+        },
+        {
+          id: 'temp_appointment',
+          title: 'Secure Visa Consulate Appointment Slot',
+          type: 'APPOINTMENT',
+          constraint: 'FIXED',
+          estimatedDuration: 15,
+          importance: 'HIGH',
+          urgency: 'HIGH',
+          dependsOn: ['temp_docs'],
+          scheduledStart: new Date(Date.now() + 24 * 3600 * 1000).toISOString()
+        },
+        {
+          id: 'temp_prep',
+          title: 'Consulate Mock Interview Prep',
+          type: 'FOCUS_BLOCK',
+          constraint: 'FLEXIBLE',
+          estimatedDuration: 30,
+          importance: 'MEDIUM',
+          urgency: 'MEDIUM',
+          dependsOn: ['temp_appointment'],
+          scheduledStart: new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString()
+        }
+      ];
+    } else if (title.toLowerCase().includes('career') || title.toLowerCase().includes('job') || title.toLowerCase().includes('portfolio')) {
+      customCommitments = [
+        {
+          id: 'temp_portfolio',
+          title: 'Curate Project Case Studies & Resume',
+          type: 'TASK',
+          constraint: 'FLEXIBLE',
+          estimatedDuration: 60,
+          importance: 'HIGH',
+          urgency: 'HIGH',
+          dependsOn: [],
+          scheduledStart: new Date(Date.now() + 3 * 3600 * 1000).toISOString()
+        },
+        {
+          id: 'temp_mock',
+          title: 'Complete Interactive Mock Interview Sessions',
+          type: 'FOCUS_BLOCK',
+          constraint: 'FLEXIBLE',
+          estimatedDuration: 60,
+          importance: 'HIGH',
+          urgency: 'MEDIUM',
+          dependsOn: ['temp_portfolio'],
+          scheduledStart: new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString()
+        },
+        {
+          id: 'temp_apply',
+          title: 'Submit Targeted Applications',
+          type: 'TASK',
+          constraint: 'FLEXIBLE',
+          estimatedDuration: 45,
+          importance: 'MEDIUM',
+          urgency: 'MEDIUM',
+          dependsOn: ['temp_mock'],
+          scheduledStart: new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString()
+        }
+      ];
+    }
+
+    reply = `I have auto-planned your goal: **"${title}"** by structuring a 3-step execution roadmap with connected nodes and dependencies scheduled over the coming days. Confirm to save this plan.`;
+    actions = [{
+      id: 'action_goal_' + Math.random().toString(36).substr(2, 9),
+      type: 'CREATE_GOAL',
+      description: `Create Goal & Auto-Plan Roadmap: "${title}"`,
+      data: {
+        title,
+        description: "Formulated and auto-planned via Mo Companion discussion",
+        deadline: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().split('T')[0],
+        area: "Career",
+        customCommitments
+      },
+      status: 'PENDING'
+    }];
+  } else if (msgLower.includes('schedule') || msgLower.includes('add task') || msgLower.includes('create commitment') || msgLower.includes('focus block')) {
+    const match = message.match(/(?:schedule|add|create|task)\s+["']?([^"'\n]+)["']?/i);
+    const title = match ? match[1] : "Focus Work Session";
+    reply = `I've designed a focus session for **"${title}"** (60 min). Would you like me to schedule it?`;
+    actions = [{
+      id: 'action_comm_' + Math.random().toString(36).substr(2, 9),
+      type: 'CREATE_COMMITMENT',
+      description: `Create Focus Block: "${title}"`,
+      data: {
+        title,
+        type: 'FOCUS_BLOCK',
+        constraint: 'FLEXIBLE',
+        estimatedDuration: 60,
+        importance: 'MEDIUM',
+        urgency: 'MEDIUM',
+        origin: 'AI'
+      },
+      status: 'PENDING'
+    }];
+  } else if (msgLower.includes('reschedule') || msgLower.includes('move')) {
+    // Find matching commitment
+    const targetComm = commitments.find((c: any) => 
+      msgLower.includes(c.title.toLowerCase()) || 
+      c.title.toLowerCase().split(' ').some((word: string) => word.length > 3 && msgLower.includes(word))
+    ) || (commitments.length > 0 ? commitments[0] : null);
+
+    if (targetComm) {
+      reply = `I have drafted a proposal to reschedule **"${targetComm.title}"** to tomorrow. Do you authorize this adjustment?`;
+      actions = [{
+        id: 'action_resch_' + Math.random().toString(36).substr(2, 9),
+        type: 'RESCHEDULE_COMMITMENT',
+        description: `Reschedule "${targetComm.title}" to Tomorrow`,
+        data: {
+          id: targetComm.id,
+          scheduledStart: new Date(Date.now() + 24 * 3600 * 1000).toISOString()
+        },
+        status: 'PENDING'
+      }];
+    } else {
+      reply = "I couldn't identify which commitment you wanted to reschedule. Please specify its title clearly!";
+    }
+  } else if (msgLower.includes('delete') || msgLower.includes('cancel') || msgLower.includes('remove')) {
+    const targetComm = commitments.find((c: any) => 
+      msgLower.includes(c.title.toLowerCase()) || 
+      c.title.toLowerCase().split(' ').some((word: string) => word.length > 3 && msgLower.includes(word))
+    ) || (commitments.length > 0 ? commitments[0] : null);
+
+    if (targetComm) {
+      reply = `I have prepared a proposal to delete **"${targetComm.title}"** from your schedule. Confirm to proceed.`;
+      actions = [{
+        id: 'action_del_' + Math.random().toString(36).substr(2, 9),
+        type: 'DELETE_COMMITMENT',
+        description: `Delete "${targetComm.title}"`,
+        data: {
+          id: targetComm.id
+        },
+        status: 'PENDING'
+      }];
+    } else {
+      reply = "Which commitment would you like me to remove? Please mention its title!";
+    }
+  } else if (msgLower.includes('interview') || msgLower.includes('job') || msgLower.includes('resume')) {
+    reply = "Regarding your **Interview Prep**, I recommend carving out dedicated Focus Blocks for mock interviews and Leetcode prep. I have prepared a mock interview focus commitment suggestion. Authorize to save.";
+    actions = [{
+      id: 'action_int_' + Math.random().toString(36).substr(2, 9),
+      type: 'CREATE_COMMITMENT',
+      description: 'Schedule Focus Block: Technical Mock Interview Prep',
+      data: {
+        title: 'Technical Mock Interview Prep',
+        type: 'FOCUS_BLOCK',
+        constraint: 'FLEXIBLE',
+        estimatedDuration: 45,
+        importance: 'HIGH',
+        origin: 'AI'
+      },
+      status: 'PENDING'
+    }];
+  } else if (msgLower.includes('recommend') || msgLower.includes('do now') || msgLower.includes('next')) {
+    if (goals.length > 0) {
+      reply = `Based on your current workspace, the highest value next step is starting "${goals[0].title}". I can schedule a 30-minute focus session right now to kickstart this.`;
+      actions = [{
+        id: 'action_rec_' + Math.random().toString(36).substr(2, 9),
+        type: 'CREATE_COMMITMENT',
+        description: `Kickstart Session: ${goals[0].title}`,
+        data: {
+          title: `Kickstart: ${goals[0].title}`,
+          type: 'FOCUS_BLOCK',
+          constraint: 'FLEXIBLE',
+          estimatedDuration: 30,
+          goalId: goals[0].id,
+          origin: 'AI'
+        },
+        status: 'PENDING'
+      }];
+    } else {
+      reply = "You don't have any active goals yet. I can draft a goal to 'Optimize Career Opportunities' for you. Authorize to create it.";
+      actions = [{
+        id: 'action_career_' + Math.random().toString(36).substr(2, 9),
+        type: 'CREATE_GOAL',
+        description: 'Create Goal: Optimize Career Opportunities',
+        data: {
+          title: 'Optimize Career Opportunities',
+          description: 'Apply to opportunities, prepare technical portfolio, and mock-review system designs.',
+          deadline: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          area: 'Career'
+        },
+        status: 'PENDING'
+      }];
+    }
+  } else if (msgLower.includes('hello') || msgLower.includes('hi')) {
+    reply = "Hello! I am Mo, your AI execution companion. I analyze your goals, commitments, and calendar to recommend your best next actions. What can we plan together today?";
+  } else {
+    reply = "I've analyzed your message. Let me know if you want me to draft a new goal, schedule a task, or make schedule adjustments.";
+  }
+
+  return { text: reply, actions };
+}
+
 // 5. Chat Endpoint (AI Sidebar)
 app.post('/api/ai/chat', async (req, res) => {
   const { message, history = [], goals = [], commitments = [] } = req.body;
@@ -405,160 +751,8 @@ app.post('/api/ai/chat', async (req, res) => {
 
   const ai = getAIClient();
   if (!ai) {
-    // Generous mock companion response with agentic fallback actions!
-    const msgLower = message.toLowerCase();
-    let reply = "I am ready to help you coordinate your execution path. ";
-    let actions: any[] = [];
-    
-    if (msgLower.includes('visa') || msgLower.includes('france')) {
-      reply = "For your **France Visa** goal, the most critical bottleneck is uploading your passport photo and bank statements. Once those physical artifacts are scanned, your visa appointment commitment will be unlocked. I've prepared a 15-minute Focus Block tonight to complete this. Would you like to schedule it?";
-      actions = [{
-        id: 'action_visa_' + Math.random().toString(36).substr(2, 9),
-        type: 'CREATE_COMMITMENT',
-        description: 'Schedule Focus Block: Upload Passport & Bank Documents',
-        data: {
-          title: 'Upload Passport & Bank Documents',
-          type: 'FOCUS_BLOCK',
-          constraint: 'FLEXIBLE',
-          estimatedDuration: 15,
-          importance: 'HIGH',
-          urgency: 'HIGH',
-          origin: 'AI'
-        },
-        status: 'PENDING'
-      }];
-    } else if (msgLower.includes('add goal') || msgLower.includes('create goal') || msgLower.includes('new goal')) {
-      const match = message.match(/(?:add|create|new) goal\s+["']?([^"'\n]+)["']?/i);
-      const title = match ? match[1] : "New Strategic Outcome";
-      reply = `I've prepared a proposal to add the goal: **"${title}"** with a 1-week deadline. Confirm to create this in your workspace.`;
-      actions = [{
-        id: 'action_goal_' + Math.random().toString(36).substr(2, 9),
-        type: 'CREATE_GOAL',
-        description: `Create Goal: "${title}"`,
-        data: {
-          title,
-          description: "Formulated via Mo Companion discussion",
-          deadline: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          area: "Career"
-        },
-        status: 'PENDING'
-      }];
-    } else if (msgLower.includes('schedule') || msgLower.includes('add task') || msgLower.includes('create commitment') || msgLower.includes('focus block')) {
-      const match = message.match(/(?:schedule|add|create|task)\s+["']?([^"'\n]+)["']?/i);
-      const title = match ? match[1] : "Focus Work Session";
-      reply = `I've designed a focus session for **"${title}"** (60 min). Would you like me to schedule it?`;
-      actions = [{
-        id: 'action_comm_' + Math.random().toString(36).substr(2, 9),
-        type: 'CREATE_COMMITMENT',
-        description: `Create Focus Block: "${title}"`,
-        data: {
-          title,
-          type: 'FOCUS_BLOCK',
-          constraint: 'FLEXIBLE',
-          estimatedDuration: 60,
-          importance: 'MEDIUM',
-          urgency: 'MEDIUM',
-          origin: 'AI'
-        },
-        status: 'PENDING'
-      }];
-    } else if (msgLower.includes('reschedule') || msgLower.includes('move')) {
-      // Find matching commitment
-      const targetComm = commitments.find((c: any) => 
-        msgLower.includes(c.title.toLowerCase()) || 
-        c.title.toLowerCase().split(' ').some((word: string) => word.length > 3 && msgLower.includes(word))
-      ) || (commitments.length > 0 ? commitments[0] : null);
-
-      if (targetComm) {
-        reply = `I have drafted a proposal to reschedule **"${targetComm.title}"** to tomorrow. Do you authorize this adjustment?`;
-        actions = [{
-          id: 'action_resch_' + Math.random().toString(36).substr(2, 9),
-          type: 'RESCHEDULE_COMMITMENT',
-          description: `Reschedule "${targetComm.title}" to Tomorrow`,
-          data: {
-            id: targetComm.id,
-            scheduledStart: new Date(Date.now() + 24 * 3600 * 1000).toISOString()
-          },
-          status: 'PENDING'
-        }];
-      } else {
-        reply = "I couldn't identify which commitment you wanted to reschedule. Please specify its title clearly!";
-      }
-    } else if (msgLower.includes('delete') || msgLower.includes('cancel') || msgLower.includes('remove')) {
-      const targetComm = commitments.find((c: any) => 
-        msgLower.includes(c.title.toLowerCase()) || 
-        c.title.toLowerCase().split(' ').some((word: string) => word.length > 3 && msgLower.includes(word))
-      ) || (commitments.length > 0 ? commitments[0] : null);
-
-      if (targetComm) {
-        reply = `I have prepared a proposal to delete **"${targetComm.title}"** from your schedule. Confirm to proceed.`;
-        actions = [{
-          id: 'action_del_' + Math.random().toString(36).substr(2, 9),
-          type: 'DELETE_COMMITMENT',
-          description: `Delete "${targetComm.title}"`,
-          data: {
-            id: targetComm.id
-          },
-          status: 'PENDING'
-        }];
-      } else {
-        reply = "Which commitment would you like me to remove? Please mention its title!";
-      }
-    } else if (msgLower.includes('interview') || msgLower.includes('job') || msgLower.includes('resume')) {
-      reply = "Regarding your **Interview Prep**, I recommend carving out dedicated Focus Blocks for mock interviews and Leetcode prep. I have prepared a mock interview focus commitment suggestion. Authorize to save.";
-      actions = [{
-        id: 'action_int_' + Math.random().toString(36).substr(2, 9),
-        type: 'CREATE_COMMITMENT',
-        description: 'Schedule Focus Block: Technical Mock Interview Prep',
-        data: {
-          title: 'Technical Mock Interview Prep',
-          type: 'FOCUS_BLOCK',
-          constraint: 'FLEXIBLE',
-          estimatedDuration: 45,
-          importance: 'HIGH',
-          origin: 'AI'
-        },
-        status: 'PENDING'
-      }];
-    } else if (msgLower.includes('recommend') || msgLower.includes('do now') || msgLower.includes('next')) {
-      if (goals.length > 0) {
-        reply = `Based on your current workspace, the highest value next step is starting "${goals[0].title}". I can schedule a 30-minute focus session right now to kickstart this.`;
-        actions = [{
-          id: 'action_rec_' + Math.random().toString(36).substr(2, 9),
-          type: 'CREATE_COMMITMENT',
-          description: `Kickstart Session: ${goals[0].title}`,
-          data: {
-            title: `Kickstart: ${goals[0].title}`,
-            type: 'FOCUS_BLOCK',
-            constraint: 'FLEXIBLE',
-            estimatedDuration: 30,
-            goalId: goals[0].id,
-            origin: 'AI'
-          },
-          status: 'PENDING'
-        }];
-      } else {
-        reply = "You don't have any active goals yet. I can draft a goal to 'Optimize Career Opportunities' for you. Authorize to create it.";
-        actions = [{
-          id: 'action_career_' + Math.random().toString(36).substr(2, 9),
-          type: 'CREATE_GOAL',
-          description: 'Create Goal: Optimize Career Opportunities',
-          data: {
-            title: 'Optimize Career Opportunities',
-            description: 'Apply to opportunities, prepare technical portfolio, and mock-review system designs.',
-            deadline: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0],
-            area: 'Career'
-          },
-          status: 'PENDING'
-        }];
-      }
-    } else if (msgLower.includes('hello') || msgLower.includes('hi')) {
-      reply = "Hello! I am Mo, your AI execution companion. I analyze your goals, commitments, and calendar to recommend your best next actions. What can we plan together today?";
-    } else {
-      reply = "I've analyzed your message. Let me know if you want me to draft a new goal, schedule a task, or make schedule adjustments.";
-    }
-
-    return res.json({ text: reply, actions });
+    const fallback = fallbackOfflineChat(message, goals, commitments);
+    return res.json(fallback);
   }
 
   try {
@@ -566,6 +760,7 @@ app.post('/api/ai/chat', async (req, res) => {
 You help the user manage their dashboard, goals, commitments, and schedule.
 Current Goals: ${JSON.stringify(goals)}
 Current Commitments: ${JSON.stringify(commitments)}
+Current Date & Time: ${new Date().toISOString()}
 
 Conversation History:
 ${history.map((h: any) => `${h.sender === 'user' ? 'User' : 'Mo'}: ${h.text}`).join('\n')}
@@ -580,14 +775,35 @@ You are an agentic AI. If the user asks you to:
 
 You MUST generate the corresponding action proposals in the "actions" array.
 Available Action Types:
-- CREATE_GOAL: fields are { "title": string, "description": string, "deadline": "YYYY-MM-DD", "area": "Career"|"Travel"|"Personal"|"Health", "customCommitments"?: Array }
+- CREATE_GOAL: fields are:
+  {
+    "title": string,
+    "description": string,
+    "deadline": "YYYY-MM-DD",
+    "area": "Career"|"Travel"|"Personal"|"Health",
+    "customCommitments": Array of commitments that should be created and automatically linked to this goal.
+  }
+  CRITICAL RULE FOR CREATE_GOAL: When the user requests a goal, do NOT just create an empty goal. You MUST auto-plan the goal immediately by pre-populating the "customCommitments" array with a roadmap of commitments (nodes) representing the logical sequence of actions/milestones needed to achieve the goal.
+  Each commitment in "customCommitments" must be structured as follows:
+  {
+    "id": "temp_id_1" (a unique temporary ID, e.g. "temp_1", "temp_2", "temp_3" etc., used to reference dependencies),
+    "title": "Clear action-oriented title",
+    "type": "EVENT"|"TASK"|"FOCUS_BLOCK"|"APPOINTMENT",
+    "constraint": "FIXED"|"FLEXIBLE"|"OPTIONAL",
+    "importance": "HIGH"|"MEDIUM"|"LOW",
+    "urgency": "HIGH"|"MEDIUM"|"LOW",
+    "estimatedDuration": number (in minutes),
+    "scheduledStart": string | null (ISO datetime string e.g. "2026-06-30T14:30:00-07:00" representing when this should be scheduled in the workspace. Automatically schedule these realistically relative to the current time, e.g. some today, some tomorrow, spread out across the days leading up to the goal's deadline),
+    "dependsOn": Array of temporary IDs of other custom commitments in this array that MUST be completed before this one (e.g., ["temp_1"] if it depends on temp_1) to establish clear relations between nodes. If there are no prerequisites, use an empty array [].
+  }
+
 - CREATE_COMMITMENT: fields are { "title": string, "type": "EVENT"|"TASK"|"FOCUS_BLOCK"|"APPOINTMENT", "constraint": "FIXED"|"FLEXIBLE"|"OPTIONAL", "estimatedDuration": number (in minutes), "scheduledStart"?: string (ISO date string if specific time requested), "goalId"?: string }
 - RESCHEDULE_COMMITMENT: fields are { "id": string (must match an existing commitment ID from current commitments list), "scheduledStart": string (ISO date string) }
 - DELETE_COMMITMENT: fields are { "id": string (must match an existing commitment ID) }
 
 Respond with a JSON object containing:
 {
-  "text": "SUPPORTIVE_CONVERSATIONAL_REPLY_MAX_4_SENTENCES. E.g. 'I've prepared a proposal to add the goal...'",
+  "text": "SUPPORTIVE_CONVERSATIONAL_REPLY_MAX_4_SENTENCES. E.g. 'I've prepared a proposal to add the goal and automatically mapped out a 3-step execution roadmap with dependencies scheduled across the next few days.'",
   "actions": [
     {
       "id": "RANDOM_STRING",
@@ -604,6 +820,9 @@ Ensure your response is valid JSON. If no actions are requested, "actions" must 
     const response = await generateContentWithRetry(ai, {
       model: 'gemini-3.5-flash',
       contents: contextPrompt,
+      config: {
+        responseMimeType: 'application/json'
+      }
     });
 
     let textStr = response.text?.trim() || "{}";
@@ -624,10 +843,168 @@ Ensure your response is valid JSON. If no actions are requested, "actions" must 
         actions: []
       });
     }
-  } catch (err) {
+  } catch (err: any) {
     logGeminiWarning('Gemini chat', err);
+    
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const isQuotaLimit = errMsg.includes('429') || 
+                         errMsg.includes('Quota exceeded') || 
+                         errMsg.includes('RESOURCE_EXHAUSTED') ||
+                         errMsg.toLowerCase().includes('quota');
+                         
+    const fallback = fallbackOfflineChat(message, goals, commitments);
+    const badge = isQuotaLimit 
+      ? "[Offline Mode - Quota Limit reached]" 
+      : "[Offline Mode - Connection hiccup]";
+      
     res.json({ 
-      text: "I apologize, but my reasoning core encountered a connection hiccup. However, I highly recommend reviewing your active goal's overdue commitments to restore your momentum score!",
+      text: `${badge} ${fallback.text}`,
+      actions: fallback.actions
+    });
+  }
+});
+
+// 5.5 Calendar Intelligence Endpoint
+app.post('/api/ai/calendar-intelligence', async (req, res) => {
+  const { prevPlannerResult, currentPlannerResult } = req.body;
+
+  // Extract variables for analysis
+  const prevIds = new Set(prevPlannerResult?.todayCommitments?.map((c: any) => c.id) || []);
+  const newMeetings = (currentPlannerResult?.todayCommitments || []).filter((c: any) => 
+    !prevIds.has(c.id) && (c.source === 'GOOGLE' || c.type === 'EVENT' || c.type === 'APPOINTMENT')
+  );
+
+  const currIds = new Set(currentPlannerResult?.todayCommitments?.map((c: any) => c.id) || []);
+  const removedMeetings = (prevPlannerResult?.todayCommitments || []).filter((c: any) => 
+    !currIds.has(c.id) && (c.source === 'GOOGLE' || c.type === 'EVENT' || c.type === 'APPOINTMENT')
+  );
+
+  const prevFocusTime = (prevPlannerResult?.availableFocusSlots || []).reduce((acc: number, s: any) => acc + s.duration, 0);
+  const currFocusTime = (currentPlannerResult?.availableFocusSlots || []).reduce((acc: number, s: any) => acc + s.duration, 0);
+  const focusDiff = currFocusTime - prevFocusTime;
+
+  const prevConflictIds = new Set(prevPlannerResult?.conflicts?.map((c: any) => c.id) || []);
+  const newConflicts = (currentPlannerResult?.conflicts || []).filter((c: any) => !prevConflictIds.has(c.id));
+
+  const ai = getAIClient();
+  if (!ai) {
+    // Highly robust, deterministic offline calculation fallback
+    let reply = "";
+    const actions: any[] = [];
+
+    if (newMeetings.length > 0 || removedMeetings.length > 0 || focusDiff !== 0 || newConflicts.length > 0) {
+      const parts = [];
+      if (newMeetings.length > 0) {
+        parts.push(`I discovered ${newMeetings.length} new meeting${newMeetings.length !== 1 ? 's' : ''}: ${newMeetings.map((m: any) => `"${m.title}"`).join(', ')}.`);
+      }
+      if (removedMeetings.length > 0) {
+        parts.push(`I noticed ${removedMeetings.length} meeting${removedMeetings.length !== 1 ? 's' : ''} were removed from your schedule.`);
+      }
+      if (focusDiff < 0) {
+        parts.push(`Your focus time was reduced by ${Math.abs(focusDiff)} minutes.`);
+      } else if (focusDiff > 0) {
+        parts.push(`You gained ${focusDiff} minutes of focus time.`);
+      }
+
+      if (newConflicts.length > 0) {
+        const firstConflict = newConflicts[0];
+        parts.push(`Conflict detected: ${firstConflict.reason}`);
+
+        // Suggest rescheduling a flexible commitment involved in the conflict
+        const targetId = firstConflict.commitmentIds.find((id: string) => {
+          const c = (currentPlannerResult?.todayCommitments || []).find((t: any) => t.id === id);
+          return c && c.constraint === 'FLEXIBLE';
+        });
+
+        const targetComm = targetId ? (currentPlannerResult?.todayCommitments || []).find((t: any) => t.id === targetId) : null;
+        const freeSlot = currentPlannerResult?.availableFocusSlots?.[0];
+
+        if (targetComm && freeSlot) {
+          const slotTime = new Date(freeSlot.start);
+          const timeStr = slotTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          parts.push(`I can move "${targetComm.title}" to ${timeStr} (+8 Momentum).`);
+
+          actions.push({
+            id: 'action_resch_' + Math.random().toString(36).substr(2, 9),
+            type: 'RESCHEDULE_COMMITMENT',
+            description: `Move "${targetComm.title}" to ${timeStr}`,
+            data: {
+              id: targetComm.id,
+              scheduledStart: freeSlot.start
+            },
+            status: 'PENDING'
+          });
+        }
+      } else {
+        parts.push("Your daily blocks are fully optimized and conflict-free.");
+      }
+
+      reply = parts.join(" ");
+    } else {
+      reply = "Calendar synchronization is complete. I analyzed your schedule and found no meaningful variations. Your day remains fully optimized.";
+    }
+
+    return res.json({ text: reply, actions });
+  }
+
+  try {
+    const contextPrompt = `You are Mo, the user's executive AI Companion. Analyze schedule variations post-Google Calendar sync.
+    
+Previous Planner Result:
+${JSON.stringify(prevPlannerResult, null, 2)}
+
+Current Planner Result:
+${JSON.stringify(currentPlannerResult, null, 2)}
+
+Parsed metrics:
+- New Meetings discovered: ${JSON.stringify(newMeetings)}
+- Removed Meetings: ${JSON.stringify(removedMeetings)}
+- Focus Time difference (minutes): ${focusDiff}
+- New Conflicts detected: ${JSON.stringify(newConflicts)}
+
+Your goal is to explain changes to the user and offer actionable schedule improvements.
+If conflicts are detected, you MUST propose a "RESCHEDULE_COMMITMENT" action to move a flexible, conflicting commitment to one of the empty slots in the current focus slots.
+
+Return ONLY a valid JSON object matching this schema. No markdown, no code blocks:
+{
+  "text": "Your conversational briefing of the changes, e.g. 'I found 2 new meetings. Your interview prep now conflicts with Team Sync. I can move it to 6 PM (+8 Momentum).'",
+  "actions": [
+    {
+      "id": "RANDOM_STRING",
+      "type": "RESCHEDULE_COMMITMENT",
+      "description": "Move '[Commitment Title]' to [Time]",
+      "data": {
+        "id": "commitment_id",
+        "scheduledStart": "ISO_DATE_STRING"
+      },
+      "status": "PENDING"
+    }
+  ]
+}
+If no changes require action, return an empty actions array.
+Respond with raw JSON only. Do not wrap in markdown \`\`\`json blocks.`;
+
+    const response = await generateContentWithRetry(ai, {
+      model: 'gemini-3.5-flash',
+      contents: contextPrompt,
+      config: {
+        responseMimeType: 'application/json',
+      }
+    });
+
+    let textStr = response.text?.trim() || "{}";
+    const parsed = JSON.parse(textStr.replace(/```json/gi, '').replace(/```/g, '').trim());
+    res.json({
+      text: parsed.text || "Calendar sync complete.",
+      actions: parsed.actions || []
+    });
+  } catch (err) {
+    logGeminiWarning('Gemini calendar intelligence', err);
+    // Secure offline fallback in case of errors
+    res.json({
+      text: newConflicts.length > 0 
+        ? `I detected new conflicts in your schedule following the calendar sync: "${newConflicts[0].reason}". Let's resolve this to preserve your momentum score.`
+        : `Calendar synced successfully. Gained ${focusDiff > 0 ? focusDiff : 0} minutes of focus space. Your schedule is optimized.`,
       actions: []
     });
   }
