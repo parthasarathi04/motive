@@ -17,7 +17,7 @@ export const RecommendationSection: React.FC = () => {
 
   return (
     <div className="space-y-3" id="motive-recommendation-section">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between h-8">
         <div className="flex items-center gap-1.5">
           <Sparkles className="h-4 w-4 text-emerald-600 fill-emerald-600/10 animate-pulse" />
           <h2 className="text-xs font-semibold text-slate-800 dark:text-zinc-200 uppercase tracking-wider font-mono">Next Best Action</h2>
@@ -25,7 +25,7 @@ export const RecommendationSection: React.FC = () => {
         <button
           onClick={handleRegenerate}
           disabled={isRegenerating}
-          className="px-2 py-1 text-[10.5px] font-bold text-slate-600 dark:text-zinc-300 bg-white dark:bg-[#131415] border border-slate-200/60 dark:border-zinc-800/80 rounded-lg hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-all flex items-center gap-1 shadow-xs"
+          className="px-2 py-1 text-[10.5px] font-bold text-slate-600 dark:text-zinc-300 bg-white dark:bg-[#131415] border border-slate-200/60 dark:border-zinc-800/80 rounded-lg hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-all flex items-center gap-1 shadow-xs shrink-0"
         >
           <RotateCw className={`h-3 w-3 ${isRegenerating ? 'animate-spin' : ''}`} />
           <span>{isRegenerating ? "Re-planning..." : "Re-evaluate"}</span>
@@ -94,16 +94,16 @@ export const RecommendationSection: React.FC = () => {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="border-2 border-dashed border-slate-100 dark:border-zinc-900 rounded-xl p-6 flex flex-col items-center justify-center text-center text-slate-400 dark:text-zinc-500"
+            className="border border-dashed border-slate-300 dark:border-zinc-800 rounded-xl p-8 flex flex-col items-center justify-center text-center text-slate-400 dark:text-zinc-500 bg-slate-50/10 dark:bg-zinc-900/10"
           >
-            <Sparkles className="h-6 w-6 text-slate-200 dark:text-zinc-800 mb-2" />
-            <p className="text-xs font-bold text-slate-700 dark:text-zinc-300">No active recommendations</p>
-            <p className="text-[10px] text-slate-400 dark:text-zinc-500 mt-0.5 mb-3 max-w-[200px]">
-              Planning engines analyzed. Tap below to re-evaluate.
+            <Sparkles className="h-6 w-6 text-slate-400 dark:text-zinc-500 mb-2.5" />
+            <p className="text-xs font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wider font-mono">No active recommendations</p>
+            <p className="text-[10.5px] text-slate-450 dark:text-zinc-500 mt-1 mb-4 leading-relaxed max-w-[200px]">
+              No suggestions found. Re-evaluate the graph to trigger the recommender.
             </p>
             <button
               onClick={handleRegenerate}
-              className="px-2.5 py-1.5 bg-slate-50 dark:bg-zinc-900/40 border border-slate-100 dark:border-zinc-900 rounded-lg text-[10.5px] font-bold text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-850 transition-all cursor-pointer"
+              className="px-3 py-1.5 bg-slate-50 dark:bg-zinc-900/40 border border-slate-150 dark:border-zinc-800 rounded-lg text-[11px] font-bold text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-850 transition-all cursor-pointer shadow-xs"
             >
               Analyze Workspace
             </button>

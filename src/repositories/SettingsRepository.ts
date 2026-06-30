@@ -1,73 +1,49 @@
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc 
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { UserSettings } from '../types';
+import { StorageProvider } from '../lib/StorageProvider';
 
 const COLLECTION = 'settings';
 
-const isLocalMode = () => {
-  return !localStorage.getItem('motive_use_cloud');
-};
-
-const getLocalSettings = (userId: string): UserSettings => {
-  const data = localStorage.getItem(`motive_settings_${userId}`);
-  if (data) return JSON.parse(data);
-  
-  const defaultSettings: UserSettings = {
-    userId,
-    theme: 'LIGHT', // light mode by default
+const getDefaultSettings = (userId: string | null): UserSettings => {
+  const effectiveId = userId || 'guest';
+  return {
+    userId: effectiveId,
+    theme: 'SYSTEM',
     calendarSync: true,
-    gmailSync: true,
+    emailSync: true,
     focusBlockSync: true,
-    notifications: true
+    notifications: true,
+    linkedAccounts: [
+      {
+        email: 'parthabhunia2001@gmail.com',
+        name: 'Partha Sarathi Bhunia',
+        photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+        isPrimary: true,
+        linkedAt: new Date().toISOString()
+      }
+    ]
   };
-  localStorage.setItem(`motive_settings_${userId}`, JSON.stringify(defaultSettings));
-  return defaultSettings;
-};
-
-const saveLocalSettings = (userId: string, settings: UserSettings) => {
-  localStorage.setItem(`motive_settings_${userId}`, JSON.stringify(settings));
 };
 
 export const SettingsRepository = {
-  async getSettings(userId: string): Promise<UserSettings> {
-    if (isLocalMode()) {
-      return getLocalSettings(userId);
-    }
-    try {
-      const docRef = doc(db, COLLECTION, userId);
-      const snapshot = await getDoc(docRef);
-      if (snapshot.exists()) {
-        return snapshot.data() as UserSettings;
-      } else {
-        const defaults = getLocalSettings(userId);
-        await setDoc(docRef, defaults);
-        return defaults;
+  async getSettings(userId: string | null): Promise<UserSettings> {
+    const effectiveId = userId || 'guest';
+    const settings = await StorageProvider.getProvider().get<UserSettings>(COLLECTION, effectiveId);
+    if (settings) {
+      if (!settings.linkedAccounts) {
+        settings.linkedAccounts = getDefaultSettings(userId).linkedAccounts;
       }
-    } catch (e) {
-      console.warn('Firestore getSettings failed, falling back to local', e);
-      return getLocalSettings(userId);
+      return settings;
     }
+    const defaults = getDefaultSettings(userId);
+    await StorageProvider.getProvider().set<UserSettings>(COLLECTION, effectiveId, defaults);
+    return defaults;
   },
 
-  async updateSettings(userId: string, updates: Partial<UserSettings>): Promise<void> {
-    const current = getLocalSettings(userId);
+  async updateSettings(userId: string | null, updates: Partial<UserSettings>): Promise<void> {
+    const effectiveId = userId || 'guest';
+    const current = await this.getSettings(userId);
     const updated = { ...current, ...updates };
-    saveLocalSettings(userId, updated);
+    await StorageProvider.getProvider().set<UserSettings>(COLLECTION, effectiveId, updated);
     window.dispatchEvent(new Event('motive_settings_updated'));
-
-    if (isLocalMode()) {
-      return;
-    }
-
-    try {
-      await updateDoc(doc(db, COLLECTION, userId), updates);
-    } catch (e) {
-      console.error('Firestore updateSettings failed', e);
-    }
   }
 };

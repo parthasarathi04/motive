@@ -26,8 +26,131 @@ import {
 import { BusinessEngine } from '../utils/BusinessEngine';
 import { Commitment, CommitmentType } from '../types';
 
+interface PositionedCommitment {
+  commitment: Commitment;
+  top: number;
+  height: number;
+  left: string;
+  width: string;
+}
+
+const getPositionedCommitments = (dayComms: Commitment[], paddingLeftRightPercent: number = 0, paddingLeftRightPx: number = 12): PositionedCommitment[] => {
+  const validComms = dayComms
+    .filter(c => c.startTime && c.endTime && c.status !== 'CANCELLED')
+    .sort((a, b) => {
+      const startA = new Date(a.startTime!).getTime();
+      const startB = new Date(b.startTime!).getTime();
+      if (startA !== startB) return startA - startB;
+      const endA = new Date(a.endTime!).getTime();
+      const endB = new Date(b.endTime!).getTime();
+      return endB - endA;
+    });
+
+  if (validComms.length === 0) return [];
+
+  const clusters: Commitment[][] = [];
+  let currentCluster: Commitment[] = [];
+  let clusterEnd = 0;
+
+  validComms.forEach(c => {
+    const start = new Date(c.startTime!).getTime();
+    const end = new Date(c.endTime!).getTime();
+
+    if (currentCluster.length === 0) {
+      currentCluster.push(c);
+      clusterEnd = end;
+    } else if (start < clusterEnd) {
+      currentCluster.push(c);
+      if (end > clusterEnd) clusterEnd = end;
+    } else {
+      clusters.push(currentCluster);
+      currentCluster = [c];
+      clusterEnd = end;
+    }
+  });
+  if (currentCluster.length > 0) {
+    clusters.push(currentCluster);
+  }
+
+  const result: PositionedCommitment[] = [];
+
+  clusters.forEach(cluster => {
+    const columns: Commitment[][] = [];
+
+    cluster.forEach(c => {
+      const start = new Date(c.startTime!).getTime();
+      
+      let colIndex = -1;
+      for (let i = 0; i < columns.length; i++) {
+        const lastInCol = columns[i][columns[i].length - 1];
+        const lastEnd = new Date(lastInCol.endTime!).getTime();
+        if (start >= lastEnd) {
+          colIndex = i;
+          break;
+        }
+      }
+
+      if (colIndex === -1) {
+        columns.push([c]);
+      } else {
+        columns[colIndex].push(c);
+      }
+    });
+
+    const totalCols = columns.length;
+    
+    cluster.forEach(c => {
+      let colIndex = 0;
+      for (let i = 0; i < columns.length; i++) {
+        if (columns[i].includes(c)) {
+          colIndex = i;
+          break;
+        }
+      }
+
+      // Compute how many columns this item can stretch to the right
+      let colSpan = 1;
+      const startMs = new Date(c.startTime!).getTime();
+      const endMs = new Date(c.endTime!).getTime();
+
+      for (let j = colIndex + 1; j < totalCols; j++) {
+        const hasOverlapInCol = columns[j].some(other => {
+          const oStart = new Date(other.startTime!).getTime();
+          const oEnd = new Date(other.endTime!).getTime();
+          return startMs < oEnd && oStart < endMs;
+        });
+        if (hasOverlapInCol) {
+          break;
+        }
+        colSpan++;
+      }
+
+      const start = new Date(c.startTime!);
+      const startMins = start.getHours() * 60 + start.getMinutes();
+      const duration = c.estimatedDuration || 60;
+
+      const top = startMins;
+      const height = Math.max(duration, paddingLeftRightPx === 12 ? 55 : 25);
+
+      const colWidthPercent = 100 / totalCols;
+      const left = `calc(${colIndex * colWidthPercent}% + ${paddingLeftRightPx}px)`;
+      const width = `calc(${colSpan * colWidthPercent}% - ${paddingLeftRightPx * 2}px)`;
+
+      result.push({
+        commitment: c,
+        top,
+        height,
+        left,
+        width
+      });
+    });
+  });
+
+  return result;
+};
+
 export const CalendarSection: React.FC = () => {
-  const { commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitmentComplete } = useMotive();
+  const { commitments, addCommitment, updateCommitment, deleteCommitment, toggleCommitmentComplete, syncGoogleCalendar } = useMotive();
   
   const [viewMode, setViewMode] = useState<'year' | 'month' | 'week' | 'day'>('month');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -220,6 +343,57 @@ export const CalendarSection: React.FC = () => {
       timelineScrollRef.current.scrollTop = 420;
     }
   }, [viewMode]);
+
+  // Auto-sync calendar when navigating to a date range without data
+  useEffect(() => {
+    // Determine the start and end of the current view range
+    let rangeStart: Date;
+    let rangeEnd: Date;
+
+    if (viewMode === 'day') {
+      rangeStart = new Date(selectedDate);
+      rangeStart.setHours(0, 0, 0, 0);
+      rangeEnd = new Date(selectedDate);
+      rangeEnd.setHours(23, 59, 59, 999);
+    } else if (viewMode === 'week') {
+      const days = getDaysInActiveWeek(selectedDate);
+      rangeStart = new Date(days[0]);
+      rangeStart.setHours(0, 0, 0, 0);
+      rangeEnd = new Date(days[6]);
+      rangeEnd.setHours(23, 59, 59, 999);
+    } else if (viewMode === 'month') {
+      const days = getDaysInActiveMonth(selectedDate);
+      rangeStart = new Date(days[0]);
+      rangeStart.setHours(0, 0, 0, 0);
+      rangeEnd = new Date(days[41]);
+      rangeEnd.setHours(23, 59, 59, 999);
+    } else { // year
+      rangeStart = new Date(selectedDate.getFullYear(), 0, 1, 0, 0, 0, 0);
+      rangeEnd = new Date(selectedDate.getFullYear(), 11, 31, 23, 59, 59, 999);
+    }
+
+    const rangeStartStr = rangeStart.toISOString().split('T')[0];
+    const rangeEndStr = rangeEnd.toISOString().split('T')[0];
+    const rangeKey = `cal_synced_${rangeStartStr}_${rangeEndStr}`;
+
+    // If we have already synced this exact range, do not auto-sync again
+    if (localStorage.getItem(rangeKey)) {
+      return;
+    }
+
+    // Check if we have any calendar commitments in this range
+    const hasData = commitments.some(c => {
+      if (!c.startTime) return false;
+      const cStart = new Date(c.startTime);
+      return cStart >= rangeStart && cStart <= rangeEnd;
+    });
+
+    if (!hasData) {
+      localStorage.setItem(rangeKey, 'true');
+      console.log(`No calendar data for navigated range [${rangeStartStr} to ${rangeEndStr}]. Triggering auto-sync...`);
+      syncGoogleCalendar(rangeStart.toISOString(), rangeEnd.toISOString());
+    }
+  }, [selectedDate, viewMode, commitments]);
 
   // Find calendar conflicts using Business Engine
   const conflicts = BusinessEngine.detectConflicts(commitments);
@@ -934,19 +1108,10 @@ export const CalendarSection: React.FC = () => {
                         ))}
 
                         {/* Absolute positioned block badges */}
-                        {dayComms.map((comm) => {
-                          if (!comm.startTime || !comm.endTime) return null;
+                        {getPositionedCommitments(dayComms, 0, 1.5).map(({ commitment: comm, top, height, left, width }) => {
                           const hasConflict = conflicts.some(conf => conf.c1.id === comm.id || conf.c2.id === comm.id);
                           const style = getCommitmentColors(comm, hasConflict);
-
-                          const start = new Date(comm.startTime);
-                          const end = new Date(comm.endTime);
-                          const startMins = start.getHours() * 60 + start.getMinutes();
-                          const duration = comm.estimatedDuration;
-
-                          // Each minute is 1px
-                          const topPos = startMins;
-                          const heightPos = Math.max(duration, 25); // Minimum 25px visual card height
+                          const start = new Date(comm.startTime!);
 
                           return (
                             <div
@@ -955,14 +1120,14 @@ export const CalendarSection: React.FC = () => {
                                 e.stopPropagation();
                                 setEditingCommitment(comm);
                               }}
-                              style={{ top: `${topPos}px`, height: `${heightPos}px` }}
+                              style={{ top: `${top}px`, height: `${height}px`, left, width }}
                               title={comm.title}
-                              className={`absolute left-1 right-1 p-1 rounded-lg border text-[10px] font-bold tracking-tight cursor-pointer overflow-hidden transition-all hover:z-20 flex flex-col justify-between ${style.bg} ${style.border} ${style.text}`}
+                              className={`absolute p-1 rounded-lg border text-[10px] font-bold tracking-tight cursor-pointer overflow-hidden transition-all hover:z-20 flex flex-col justify-between ${style.bg} ${style.border} ${style.text}`}
                             >
                               <div className="flex items-start justify-between">
                                 <span className="truncate leading-tight">{comm.title}</span>
                               </div>
-                              <span className="text-[9px] font-mono opacity-80 mt-1 leading-none">
+                              <span className="text-[9.5px] font-mono opacity-80 mt-1 leading-none">
                                 {start.toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric', hour12: false })}
                               </span>
                             </div>
@@ -1032,20 +1197,12 @@ export const CalendarSection: React.FC = () => {
                     ))}
 
                     {/* Timeline Commitment Cards (Proper Absolute position matching hours) */}
-                    {getCommitmentsForDate(selectedDate).map((comm) => {
-                      if (!comm.startTime || !comm.endTime) return null;
+                    {getPositionedCommitments(getCommitmentsForDate(selectedDate), 0, 12).map(({ commitment: comm, top, height, left, width }) => {
                       const hasConflict = conflicts.some(conf => conf.c1.id === comm.id || conf.c2.id === comm.id);
                       const style = getCommitmentColors(comm, hasConflict);
 
-                      const start = new Date(comm.startTime);
-                      const startMins = start.getHours() * 60 + start.getMinutes();
                       const duration = comm.estimatedDuration;
-
-                      const topPos = startMins;
-                      const heightPos = Math.max(duration, 55); // Minimum height to render content properly
-
                       const isFB = comm.type === 'FOCUS_BLOCK';
-
                       const isShort = duration < 75;
 
                       return (
@@ -1055,8 +1212,8 @@ export const CalendarSection: React.FC = () => {
                             e.stopPropagation();
                             setEditingCommitment(comm);
                           }}
-                          style={{ top: `${topPos}px`, height: `${heightPos}px` }}
-                          className={`absolute left-3 right-3 rounded-lg border text-left flex flex-col justify-between overflow-hidden transition-all hover:z-20 cursor-pointer hover:brightness-[0.98] active:scale-[0.99] ${
+                          style={{ top: `${top}px`, height: `${height}px`, left, width }}
+                          className={`absolute rounded-lg border text-left flex flex-col justify-between overflow-hidden transition-all hover:z-20 cursor-pointer hover:brightness-[0.98] active:scale-[0.99] ${
                             isShort ? 'px-2.5 py-1.5' : 'p-3'
                           } ${style.bg} ${style.border} ${style.text}`}
                         >
@@ -1276,10 +1433,10 @@ export const CalendarSection: React.FC = () => {
       {/* QUICK ADD COMMITMENT MODAL (Exact Google Calendar Popup) */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-950/40 dark:bg-zinc-950/60 backdrop-blur-sm z-50 flex items-center justify-center px-4">
-          <div className="bg-white dark:bg-[#0c0d0e] border border-slate-100 dark:border-zinc-900 w-full max-w-lg md:max-w-xl rounded-xl overflow-hidden shadow-lg animate-in fade-in zoom-in duration-150">
+          <div className="bg-white dark:bg-[#0c0d0e] border border-slate-100 dark:border-zinc-800 w-full max-w-lg md:max-w-xl rounded-xl overflow-hidden shadow-lg animate-in fade-in zoom-in duration-150">
             
             {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-50 dark:border-zinc-900 flex items-center justify-between">
+            <div className="px-5 py-4 border-b border-slate-50 dark:border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CalendarIcon className="h-5 w-5 text-emerald-500" />
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">
@@ -1543,10 +1700,10 @@ export const CalendarSection: React.FC = () => {
       {/* EDIT/VIEW COMMITMENT MODAL */}
       {editingCommitment && (
         <div className="fixed inset-0 bg-slate-950/40 dark:bg-zinc-950/60 backdrop-blur-sm z-50 flex items-center justify-center px-4">
-          <div className="bg-white dark:bg-[#0c0d0e] border border-slate-100 dark:border-zinc-900 w-full max-w-lg md:max-w-xl rounded-xl overflow-hidden shadow-lg animate-in fade-in zoom-in duration-150">
+          <div className="bg-white dark:bg-[#0c0d0e] border border-slate-100 dark:border-zinc-800 w-full max-w-lg md:max-w-xl rounded-xl overflow-hidden shadow-lg animate-in fade-in zoom-in duration-150">
             
             {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-50 dark:border-zinc-900 flex items-center justify-between">
+            <div className="px-5 py-4 border-b border-slate-50 dark:border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CheckSquare className="h-5 w-5 text-emerald-500" />
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">

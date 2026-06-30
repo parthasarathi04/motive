@@ -458,14 +458,25 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
         userId: 'temp_user',
         title: newTitle.trim(),
         type: newType,
-        constraint: newConstraint,
+        source: 'USER',
         origin: 'USER',
+        accountId: null,
+        goalLinks: goalId ? [goalId] : [],
+        dependencies: [],
+        dependsOn: [],
+        constraint: newConstraint,
+        importance: 'MEDIUM',
+        urgency: 'MEDIUM',
+        impact: 'MEDIUM',
+        energy: 'MEDIUM',
         status: 'PLANNED',
         startTime: startISO,
         endTime: endISO,
         endDateStr: newEndDateStr,
         estimatedDuration: calculatedDuration,
-        dependsOn: [],
+        scheduledStart: null,
+        scheduledEnd: null,
+        metadata: {},
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -1330,8 +1341,9 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
                     Are you sure you want to remove <strong className="text-neutral-800 dark:text-zinc-200">"{node.title}"</strong> from the execution graph?
                   </p>
                   {dependentsCount > 0 && (
-                    <p className="text-[10.5px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-lg p-2 mt-3 font-medium">
-                      ⚠️ This will also sever prerequisites for {dependentsCount} dependent task(s).
+                    <p className="text-[10.5px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-lg p-2 mt-3 font-medium flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      <span>This will also sever prerequisites for {dependentsCount} dependent task(s).</span>
                     </p>
                   )}
                 </div>

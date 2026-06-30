@@ -34,7 +34,7 @@ export const ArtifactsQueue: React.FC = () => {
                 <div className="flex items-center justify-between text-[11px] font-mono">
                   <span className="flex items-center gap-1 text-slate-400 dark:text-zinc-500">
                     <Mail className="h-3.5 w-3.5" />
-                    {art.source === 'GMAIL' ? 'GMail Extracted Action' : 'Calendar Event'}
+                    {art.source === 'EMAIL' ? 'Email Extracted Action' : 'Calendar Event'}
                   </span>
                   
                   {art.confidence && (

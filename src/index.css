@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plaster&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plaster&family=Protest+Gorilla&family=Emblema+One&family=Keania+One&family=Kenia&display=swap');
 @import "tailwindcss";
 
 @variant dark (&:where(.dark, .dark *));
@@ -7,6 +7,10 @@
   --font-sans: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-plaster: "Plaster", system-ui, sans-serif;
+  --font-protest-gorilla: "Protest Gorilla", system-ui, sans-serif;
+  --font-emblema-one: "Emblema One", system-ui, sans-serif;
+  --font-keania-one: "Keania One", system-ui, sans-serif;
+  --font-kenia: "Kenia", system-ui, sans-serif;
 
   /* Premium, highly saturated and vibrant emerald green color scale */
   --color-emerald-50: #ecfdf5;
@@ -19,6 +23,10 @@
   --color-emerald-700: #065f46;
   --color-emerald-800: #064e3b;
   --color-emerald-950: #011c15;
+
+  /* Custom colors for borders and secondary surfaces */
+  --color-zinc-850: #1b1c1e;
+  --color-slate-150: #eef2f6;
 }
 
 @keyframes path-dash-flow {
@@ -31,4 +39,66 @@
   stroke-dasharray: 6, 4;
   animation: path-dash-flow 1.2s linear infinite;
 }
+
+/* Highly robust text clipping gradient class */
+.text-gradient {
+  background: linear-gradient(135deg, #059669 0%, #0d9488 50%, #4f46e5 100%);
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+  display: inline-block;
+}
+
+:where(.dark, .dark *) .text-gradient {
+  background: linear-gradient(135deg, #34d399 0%, #2dd4bf 50%, #60a5fa 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+}
+
+/* Systemic WCAG Dark Mode Contrast Overrides */
+:where(.dark, .dark *) {
+  --color-zinc-900: #27282b; /* Make zinc-900 significantly more visible as borders/surfaces */
+  --color-zinc-850: #2f3034; /* Make zinc-850 more visible */
+  --color-zinc-800: #38393c; /* Make zinc-800 more visible */
+  --color-neutral-900: #2a2b2e; /* Make neutral-900 more visible */
+  --color-zinc-500: #a1a1aa; /* High contrast secondary labels */
+  --color-zinc-400: #e4e4e7; /* Clean, highly readable body text */
+  --color-slate-400: #94a3b8; /* Faded yet legible slate */
+  --color-slate-450: #cbd5e1; /* Subtext with strong contrast */
+  --color-neutral-400: #a3a3a3; /* Neutral gray labels */
+  --color-neutral-500: #cbd5e1; /* Neutral body text */
+}
+
+/* Universal Dark Mode form and popup contrast enhancements */
+.dark input,
+.dark textarea,
+.dark select {
+  border-color: #38393c !important;
+}
+
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus {
+  border-color: #10b981 !important; /* Emerald green theme active indicator */
+}
+
+@keyframes loading-progress {
+  0% {
+    width: 0%;
+  }
+  50% {
+    width: 70%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+.animate-loading-progress {
+  animation: loading-progress 1.5s infinite ease-in-out;
+}
+
 

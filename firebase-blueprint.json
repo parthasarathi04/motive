@@ -1,0 +1,183 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "timezone": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastLogin": { "type": "string" }
+      },
+      "required": ["uid", "name", "email", "createdAt"]
+    },
+    "CalendarAccount": {
+      "title": "CalendarAccount",
+      "description": "Connected Google Calendar Account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "avatar": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "syncToken": { "type": "string" },
+        "lastSync": { "type": "string" }
+      },
+      "required": ["id", "userId", "email", "status"]
+    },
+    "CalendarEventCache": {
+      "title": "CalendarEventCache",
+      "description": "Cached Google Calendar Event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "calendarId": { "type": "string" },
+        "accountId": { "type": "string" },
+        "userId": { "type": "string" },
+        "summary": { "type": "string" },
+        "description": { "type": "string" },
+        "start": { "type": "string" },
+        "end": { "type": "string" },
+        "status": { "type": "string" },
+        "eTag": { "type": "string" },
+        "updated": { "type": "string" },
+        "deleted": { "type": "boolean" }
+      },
+      "required": ["id", "calendarId", "accountId", "userId", "start", "end"]
+    },
+    "Goal": {
+      "title": "Goal",
+      "description": "Establish high-momentum objectives",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "area": { "type": "string" },
+        "deadline": { "type": "string" },
+        "planningStatus": { "type": "string", "enum": ["NOT_PLANNED", "PARTIALLY_PLANNED", "PLANNED", "EXECUTING", "COMPLETED"] },
+        "goalHealth": { "type": "string", "enum": ["ON_TRACK", "AT_RISK", "OFF_TRACK"] },
+        "momentum": { "type": "number" },
+        "risk": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "status": { "type": "string", "enum": ["DRAFT", "PLANNING", "ACTIVE", "BLOCKED", "COMPLETED", "ARCHIVED"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "deadline", "planningStatus", "goalHealth", "status"]
+    },
+    "Commitment": {
+      "title": "Commitment",
+      "description": "Smallest executable unit inside Motive",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "goalLinks": { "type": "array" },
+        "type": { "type": "string", "enum": ["EVENT", "TASK", "FOCUS_BLOCK", "APPOINTMENT"] },
+        "source": { "type": "string", "enum": ["USER", "CALENDAR", "EMAIL", "AI"] },
+        "accountId": { "type": "string" },
+        "constraint": { "type": "string", "enum": ["FIXED", "FLEXIBLE", "OPTIONAL"] },
+        "importance": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "urgency": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "impact": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "energy": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "estimatedDuration": { "type": "number" },
+        "scheduledStart": { "type": "string" },
+        "scheduledEnd": { "type": "string" },
+        "status": { "type": "string", "enum": ["DISCOVERED", "PLANNED", "SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "BLOCKED"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "type", "source", "constraint", "status"]
+    },
+    "TimelineEntry": {
+      "title": "TimelineEntry",
+      "description": "Timeline log history of user activities",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "entityId": { "type": "string" },
+        "summary": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "summary", "createdAt"]
+    },
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "User system and sync preferences",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "theme": { "type": "string" },
+        "calendarSync": { "type": "boolean" },
+        "emailSync": { "type": "boolean" },
+        "focusBlockSync": { "type": "boolean" },
+        "notifications": { "type": "boolean" }
+      },
+      "required": ["userId"]
+    },
+    "PlannerResult": {
+      "title": "PlannerResult",
+      "description": "The computed single source of truth for the UI and AI companion",
+      "type": "object",
+      "properties": {
+        "executionMomentum": { "type": "number" },
+        "goalHealthMap": { "type": "object" },
+        "todayCommitments": { "type": "array" },
+        "recommendations": { "type": "array" },
+        "conflicts": { "type": "array" },
+        "availableFocusSlots": { "type": "array" },
+        "upcomingDeadlines": { "type": "array" },
+        "generatedTimestamp": { "type": "string" },
+        "plannerVersion": { "type": "string" }
+      },
+      "required": ["executionMomentum", "goalHealthMap", "todayCommitments", "generatedTimestamp", "plannerVersion"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "UserProfile",
+      "description": "User profile database"
+    },
+    "accounts": {
+      "schema": "CalendarAccount",
+      "description": "Google Accounts database"
+    },
+    "calendar_events": {
+      "schema": "CalendarEventCache",
+      "description": "Google Calendar event cached database"
+    },
+    "goals": {
+      "schema": "Goal",
+      "description": "Motive goals database"
+    },
+    "commitments": {
+      "schema": "Commitment",
+      "description": "Unified commitments database"
+    },
+    "timeline": {
+      "schema": "TimelineEntry",
+      "description": "Motive timeline history database"
+    },
+    "settings": {
+      "schema": "UserSettings",
+      "description": "User settings database"
+    },
+    "planner_results": {
+      "schema": "PlannerResult",
+      "description": "Calculated workspace momentum and scheduling results"
+    }
+  }
+}

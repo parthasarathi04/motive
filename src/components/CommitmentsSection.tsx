@@ -19,7 +19,12 @@ import {
   FileText,
   ArrowRight,
   Activity,
-  Check
+  Check,
+  Pencil,
+  Copy,
+  Archive,
+  Flame,
+  Target
 } from 'lucide-react';
 import { CommitmentType, CommitmentConstraint } from '../types';
 
@@ -30,11 +35,100 @@ export const CommitmentsSection: React.FC = () => {
     relationships, 
     updateCommitment, 
     deleteCommitment, 
-    toggleCommitmentComplete 
+    toggleCommitmentComplete,
+    addCommitment
   } = useMotive();
   
   const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'COMPLETED' | 'DELETED'>('ACTIVE');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'TASK' | 'FOCUS_BLOCK' | 'EVENT'>('ALL');
+
+  const [editModalComm, setEditModalComm] = useState<any | null>(null);
+
+  // Edit form states
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editType, setEditType] = useState<CommitmentType>('TASK');
+  const [editStatus, setEditStatus] = useState<any>('PLANNED');
+  const [editGoalId, setEditGoalId] = useState<string>('');
+  const [editDuration, setEditDuration] = useState<number>(30);
+  const [editDate, setEditDate] = useState<string>('');
+  const [editStartTime, setEditStartTime] = useState<string>('');
+  const [editEndTime, setEditEndTime] = useState<string>('');
+
+  React.useEffect(() => {
+    if (editModalComm) {
+      setEditTitle(editModalComm.title);
+      setEditDescription(editModalComm.description || '');
+      setEditType(editModalComm.type || 'TASK');
+      setEditStatus(editModalComm.status || 'PLANNED');
+      setEditGoalId(editModalComm.goalId || '');
+      setEditDuration(editModalComm.estimatedDuration || 30);
+      
+      if (editModalComm.startTime) {
+        try {
+          const dt = new Date(editModalComm.startTime);
+          setEditDate(dt.toISOString().split('T')[0]);
+          const hh = String(dt.getHours()).padStart(2, '0');
+          const mm = String(dt.getMinutes()).padStart(2, '0');
+          setEditStartTime(`${hh}:${mm}`);
+        } catch {
+          setEditDate('');
+          setEditStartTime('');
+        }
+      } else {
+        setEditDate('');
+        setEditStartTime('');
+      }
+
+      if (editModalComm.endTime) {
+        try {
+          const dt = new Date(editModalComm.endTime);
+          const hh = String(dt.getHours()).padStart(2, '0');
+          const mm = String(dt.getMinutes()).padStart(2, '0');
+          setEditEndTime(`${hh}:${mm}`);
+        } catch {
+          setEditEndTime('');
+        }
+      } else {
+        setEditEndTime('');
+      }
+    }
+  }, [editModalComm]);
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editModalComm) return;
+
+    let startTimeISO: string | null = null;
+    let endTimeISO: string | null = null;
+
+    if (editDate && editStartTime) {
+      try {
+        startTimeISO = new Date(`${editDate}T${editStartTime}`).toISOString();
+        if (editEndTime) {
+          endTimeISO = new Date(`${editDate}T${editEndTime}`).toISOString();
+        }
+      } catch (err) {
+        console.error("Invalid date or time", err);
+      }
+    }
+
+    try {
+      await updateCommitment(editModalComm.id, {
+        title: editTitle,
+        description: editDescription,
+        type: editType,
+        status: editStatus,
+        goalId: editGoalId || null,
+        estimatedDuration: Number(editDuration),
+        startTime: startTimeISO,
+        endTime: endTimeISO,
+      });
+      setEditModalComm(null);
+    } catch (err) {
+      console.error("Failed to update commitment:", err);
+    }
+  };
 
   const [confirmModal, setConfirmModal] = useState<{
     type: 'COMPLETE' | 'DELETE' | 'HARD_DELETE';
@@ -135,25 +229,34 @@ export const CommitmentsSection: React.FC = () => {
   const getConstraintBadge = (cons: CommitmentConstraint) => {
     switch (cons) {
       case 'FIXED':
-        return 'bg-rose-50/60 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 border-rose-100 dark:border-rose-900/30';
+        return 'bg-rose-500/5 dark:bg-rose-500/10 text-rose-500 dark:text-rose-400/90 border-rose-500/10 dark:border-rose-500/20 text-[8.5px] font-mono tracking-wider';
       case 'OPTIONAL':
-        return 'bg-neutral-50 dark:bg-zinc-900/40 text-neutral-500 dark:text-zinc-400 border-neutral-200/40 dark:border-zinc-800/45';
+        return 'bg-slate-500/5 dark:bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/10 dark:border-slate-500/20 text-[8.5px] font-mono tracking-wider';
       default:
-        return 'bg-indigo-50/60 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-900/30';
+        return 'bg-blue-500/5 dark:bg-blue-500/10 text-blue-500 dark:text-blue-400/90 border-blue-500/10 dark:border-blue-500/20 text-[8.5px] font-mono tracking-wider';
     }
   };
 
   const getGoalThemeColor = (goalId: string) => {
-    const hash = goalId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const colors = [
-      'bg-indigo-50/60 border-indigo-200 text-indigo-700 dark:bg-indigo-950/15 dark:border-indigo-900/20 dark:text-indigo-400',
-      'bg-emerald-50/60 border-emerald-200 text-emerald-700 dark:bg-emerald-950/15 dark:border-emerald-900/20 dark:text-emerald-400',
-      'bg-amber-50/60 border-amber-200 text-amber-700 dark:bg-amber-950/15 dark:border-amber-900/20 dark:text-amber-400',
-      'bg-rose-50/60 border-rose-200 text-rose-700 dark:bg-rose-950/15 dark:border-rose-900/20 dark:text-rose-400',
-      'bg-teal-50/60 border-teal-200 text-teal-700 dark:bg-teal-950/15 dark:border-teal-900/20 dark:text-teal-400',
-      'bg-purple-50/60 border-purple-200 text-purple-700 dark:bg-purple-950/15 dark:border-purple-900/20 dark:text-purple-400'
-    ];
-    return colors[hash % colors.length];
+    return 'bg-slate-50/50 border-slate-200/50 text-slate-600 dark:bg-zinc-900/30 dark:border-zinc-800/80 dark:text-zinc-400';
+  };
+
+  const handleDuplicate = async (comm: any) => {
+    const { id, userId, createdAt, updatedAt, ...rest } = comm;
+    rest.title = `${rest.title} (Copy)`;
+    await addCommitment(rest);
+  };
+
+  const handleRescheduleOneDay = (comm: any) => {
+    if (comm.startTime) {
+      const current = new Date(comm.startTime);
+      current.setDate(current.getDate() + 1);
+      updateCommitment(comm.id, { startTime: current.toISOString() });
+    } else {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      updateCommitment(comm.id, { startTime: tomorrow.toISOString() });
+    }
   };
 
   const getTypeIcon = (type: CommitmentType) => {
@@ -243,145 +346,49 @@ export const CommitmentsSection: React.FC = () => {
           return (
             <div
               key={comm.id}
-              className={`group relative flex flex-col justify-between bg-white dark:bg-[#0c0d0e] border p-5 rounded-2xl transition-all duration-300 border-neutral-200 dark:border-zinc-800 shadow-[0_1px_3px_rgba(0,0,0,0.02),0_1px_2px_rgba(0,0,0,0.03)] dark:shadow-none hover:shadow-[0_6px_24px_-4px_rgba(0,0,0,0.05)] dark:hover:shadow-[0_6px_24px_-4px_rgba(0,0,0,0.4)] hover:border-neutral-300 dark:hover:border-zinc-700 hover:translate-y-[-1.5px] min-h-[220px] ${
-                comm.status === 'COMPLETED' ? 'bg-neutral-50/10 dark:bg-zinc-950/5 opacity-70' : ''
+              className={`group relative flex flex-col justify-between bg-white dark:bg-[#0c0d0e] border p-5 rounded-2xl transition-all duration-200 border-neutral-200 dark:border-zinc-800 shadow-xs hover:shadow-md hover:border-neutral-300 dark:hover:border-zinc-700 min-h-[240px] ${
+                comm.status === 'COMPLETED' ? 'bg-neutral-50/15 dark:bg-zinc-950/5 opacity-70' : ''
               }`}
             >
               
               {/* Upper Section */}
-              <div className="space-y-3.5 flex-1 flex flex-col">
+              <div className="space-y-3.5 flex-1 flex flex-col pb-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {/* Badge representing type */}
-                    <span className={`p-1 rounded-lg shrink-0 ${
-                      comm.type === 'FOCUS_BLOCK' 
-                        ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-500 border border-amber-100/50 dark:border-amber-900/10' 
-                        : comm.type === 'EVENT' 
-                        ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-500 border border-blue-100/50 dark:border-blue-900/10' 
-                        : 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 border border-indigo-100/50 dark:border-indigo-900/10'
-                    }`}>
+                    <span className="p-1 rounded-lg shrink-0 bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 text-slate-500 dark:text-zinc-400">
                       {getTypeIcon(comm.type)}
                     </span>
 
                     {/* Source Origin Indicators */}
                     {comm.origin === 'CALENDAR' && (
-                      <span className="text-[9px] font-mono tracking-wider font-bold bg-blue-50 border border-blue-100 text-blue-700 dark:bg-blue-950/20 dark:border-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded-md uppercase">Google Cal</span>
+                      <span className="text-[9px] font-mono tracking-wider font-semibold bg-slate-100 border border-slate-200 text-slate-600 dark:bg-zinc-900/60 dark:border-zinc-800 dark:text-zinc-400 px-1.5 py-0.5 rounded-md uppercase">Google Cal</span>
                     )}
-                    {comm.origin === 'GMAIL' && (
-                      <span className="text-[9px] font-mono tracking-wider font-bold bg-emerald-50 border border-emerald-100 text-emerald-700 dark:bg-emerald-950/20 dark:border-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded-md uppercase">GMail</span>
+                    {comm.origin === 'EMAIL' && (
+                      <span className="text-[9px] font-mono tracking-wider font-semibold bg-slate-100 border border-slate-200 text-slate-600 dark:bg-zinc-900/60 dark:border-zinc-800 dark:text-zinc-400 px-1.5 py-0.5 rounded-md uppercase">Email</span>
                     )}
                     {comm.origin === 'AI' && (
-                      <span className="text-[9px] font-mono tracking-wider font-bold bg-amber-50 border border-amber-100 text-amber-700 dark:bg-amber-950/20 dark:border-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded-md uppercase flex items-center gap-1">
-                        <Brain className="h-2.5 w-2.5 animate-pulse" />
+                      <span className="text-[9px] font-mono tracking-wider font-semibold bg-slate-100 border border-slate-200 text-slate-600 dark:bg-zinc-900/60 dark:border-zinc-800 dark:text-zinc-400 px-1.5 py-0.5 rounded-md uppercase flex items-center gap-1">
+                        <Brain className="h-2.5 w-2.5 text-zinc-400" />
                         AI Planned
                       </span>
                     )}
                   </div>
 
-                  {/* Action Group: Checkbox & Actions (Delete, Restore, etc.) */}
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    {statusFilter !== 'DELETED' ? (
-                      <>
-                        {/* Circular Checkbox Trigger with Dependency Safeguard support & Tooltip */}
-                        <div className="relative group/tooltip">
-                          <button
-                            onClick={() => {
-                              if (hasIncompletePrereqs && comm.status !== 'COMPLETED') {
-                                // Dependency Lock: Show informational locked sequence modal instead of bypass
-                                setDependencyLockModal({
-                                  title: comm.title,
-                                  prerequisites: incompletePrereqs as string[]
-                                });
-                                return;
-                              }
-
-                              if (goal && comm.status !== 'COMPLETED') {
-                                setConfirmModal({
-                                  type: 'COMPLETE',
-                                  commitmentId: comm.id,
-                                  commitmentTitle: comm.title,
-                                  goalTitle: goal.title
-                                });
-                              } else {
-                                toggleCommitmentComplete(comm.id);
-                              }
-                            }}
-                            className={`group/checkbox flex items-center justify-center h-5 w-5 border transition-all duration-200 cursor-pointer ${
-                              comm.status === 'COMPLETED'
-                                ? 'rounded-full bg-emerald-500 border-emerald-500 text-white dark:bg-emerald-500 dark:border-emerald-500'
-                                : hasIncompletePrereqs
-                                ? 'rounded-md border-amber-300 dark:border-amber-900/40 text-amber-500 bg-amber-50/10 dark:bg-amber-950/10'
-                                : 'rounded-md hover:rounded-full border-neutral-400 dark:border-zinc-500 text-transparent hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-emerald-500/10 dark:hover:bg-emerald-500/10'
-                            }`}
-                          >
-                            {comm.status === 'COMPLETED' ? (
-                              <Check className="h-3 w-3 stroke-[3px]" />
-                            ) : hasIncompletePrereqs ? (
-                              <Lock className="h-2.5 w-2.5 text-amber-500 dark:text-amber-400" />
-                            ) : (
-                              <Check className="h-3 w-3 text-emerald-500/60 dark:text-emerald-400/60 opacity-0 group-hover/checkbox:opacity-100 transition-opacity duration-150 stroke-[2.5px]" />
-                            )}
-                          </button>
-
-                          {/* Pure CSS Hover Tooltip */}
-                          <div className="absolute right-0 bottom-full mb-1.5 px-2 py-1 bg-neutral-900 dark:bg-zinc-800 text-white dark:text-zinc-200 text-[10px] font-bold rounded-md opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all duration-150 whitespace-nowrap shadow-md pointer-events-none z-10 border border-neutral-800 dark:border-zinc-700">
-                            {comm.status === 'COMPLETED' 
-                              ? 'Completed' 
-                              : hasIncompletePrereqs 
-                              ? 'Sequence Locked (Prereqs Required)' 
-                              : 'Mark as Complete'}
-                          </div>
-                        </div>
-
-                        {/* Move to Trash Button with Confirmation Modal support */}
-                        <button
-                          onClick={() => {
-                            setConfirmModal({
-                              type: 'DELETE',
-                              commitmentId: comm.id,
-                              commitmentTitle: comm.title,
-                              goalTitle: goal?.title || undefined
-                            });
-                          }}
-                          className="p-1 rounded-lg text-neutral-400 hover:text-rose-500 dark:text-zinc-400 dark:hover:text-rose-400 hover:bg-neutral-50 dark:hover:bg-zinc-900/40 transition-all cursor-pointer"
-                          title="Move to Trash"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </>
-                    ) : (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => updateCommitment(comm.id, { status: 'PLANNED' })}
-                          className="px-2 py-1 rounded-lg border border-neutral-200 dark:border-zinc-800 hover:bg-neutral-50 dark:hover:bg-zinc-900/60 text-neutral-650 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-500 text-[9.5px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs bg-white dark:bg-zinc-950"
-                          title="Restore commitment"
-                        >
-                          <RotateCcw className="h-2.5 w-2.5" />
-                          Restore
-                        </button>
-                        <button
-                          onClick={() => {
-                            setConfirmModal({
-                              type: 'HARD_DELETE',
-                              commitmentId: comm.id,
-                              commitmentTitle: comm.title,
-                              goalTitle: goal?.title || undefined
-                            });
-                          }}
-                          className="px-2 py-1 rounded-lg border border-rose-200/50 dark:border-rose-950/20 hover:bg-rose-50 dark:hover:bg-rose-950/15 text-rose-600 dark:text-rose-400 text-[9.5px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs bg-rose-50/5 dark:bg-rose-950/5"
-                          title="Delete permanently"
-                        >
-                          <Trash2 className="h-2.5 w-2.5" />
-                          Forever
-                        </button>
-                      </div>
-                    )}
+                  {/* Standard top-right simple status indicator */}
+                  <div className="flex items-center gap-1.5">
+                    <span className={`h-2 w-2 rounded-full ${
+                      comm.status === 'COMPLETED' ? 'bg-emerald-500' :
+                      comm.status === 'BLOCKED' ? 'bg-rose-500' :
+                      comm.status === 'IN_PROGRESS' ? 'bg-amber-500' :
+                      'bg-slate-300 dark:bg-zinc-700'
+                    }`} />
                   </div>
                 </div>
 
                 {/* Card Main Title and description */}
                 <div className="space-y-1.5 flex-1">
-                  <h4 className={`text-sm font-bold tracking-tight text-neutral-800 dark:text-zinc-50 leading-snug ${
+                  <h4 className={`text-sm font-bold tracking-tight text-neutral-800 dark:text-zinc-100 leading-snug ${
                     comm.status === 'COMPLETED' ? 'line-through text-neutral-400 dark:text-zinc-500 font-semibold' : ''
                   }`}>
                     {comm.title}
@@ -396,19 +403,31 @@ export const CommitmentsSection: React.FC = () => {
                   )}
                 </div>
 
-                {/* Metadata details block (aligned nicely) */}
-                <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono text-neutral-400 dark:text-zinc-500 pt-1.5 border-t border-neutral-100 dark:border-zinc-900/30">
-                  <span className="flex items-center gap-1 font-semibold text-neutral-500 dark:text-zinc-400">
-                    <Clock className="h-3 w-3 opacity-70" />
+                {/* Metadata details block */}
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-mono text-neutral-400 dark:text-zinc-500 pt-1.5">
+                  <span className="flex items-center gap-1 font-semibold text-slate-500 dark:text-zinc-400 bg-slate-50/50 dark:bg-zinc-900/30 px-1.5 py-0.5 rounded border border-slate-100/80 dark:border-zinc-800/50">
+                    <Clock className="h-3 w-3 text-slate-400" />
                     {comm.estimatedDuration}m
                   </span>
 
-                  <span className={`px-1.5 py-0.25 rounded border text-[8.5px] font-bold uppercase tracking-wider ${getConstraintBadge(comm.constraint)}`}>
+                  <span className={`px-1.5 py-0.5 rounded border text-[8.5px] font-bold uppercase tracking-wider ${getConstraintBadge(comm.constraint)}`}>
                     {comm.constraint}
                   </span>
 
+                  {/* Energy Required Badge */}
+                  <span className="flex items-center gap-1 font-semibold text-slate-500 dark:text-zinc-400 bg-slate-50/50 dark:bg-zinc-900/30 px-1.5 py-0.5 rounded border border-slate-100/80 dark:border-zinc-800/50">
+                    <Flame className="h-3 w-3 text-slate-400 dark:text-zinc-500" />
+                    Energy: {comm.energyRequired || 'MEDIUM'}
+                  </span>
+
+                  {/* Estimated Impact Badge */}
+                  <span className="flex items-center gap-1.5 font-semibold text-slate-500 dark:text-zinc-400 bg-slate-50/50 dark:bg-zinc-900/30 px-1.5 py-0.5 rounded border border-slate-100/80 dark:border-zinc-800/50">
+                    <Target className="h-3 w-3 text-slate-400 dark:text-zinc-500" />
+                    Impact: {comm.estimatedImpact || 'MEDIUM'}
+                  </span>
+
                   {repeatPattern && (
-                    <span className="flex items-center gap-0.5 text-indigo-600 dark:text-indigo-400 bg-indigo-50/40 dark:bg-indigo-950/15 border border-indigo-100/15 px-1.5 py-0.25 rounded">
+                    <span className="flex items-center gap-0.5 text-slate-500 dark:text-zinc-400 bg-slate-50/50 dark:bg-zinc-900/30 border border-slate-100/80 dark:border-zinc-800/50 px-1.5 py-0.5 rounded">
                       <Repeat className="h-2.5 w-2.5 opacity-70" />
                       {repeatPattern}
                     </span>
@@ -426,7 +445,7 @@ export const CommitmentsSection: React.FC = () => {
 
               {/* Lower Section (only render if there's scheduled time or sequences/dependencies) */}
               {(timeDetails || (comm.dependsOn && comm.dependsOn.length > 0)) && (
-                <div className="mt-4 pt-3 border-t border-neutral-200/60 dark:border-zinc-800/60 space-y-3">
+                <div className="mt-2 pt-3 border-t border-neutral-200/40 dark:border-zinc-800/40 space-y-3 pb-8">
                   
                   {/* Real-time schedule label if allocated (Fit content, not full width, with padding) */}
                   {timeDetails && (
@@ -457,7 +476,7 @@ export const CommitmentsSection: React.FC = () => {
                                 : 'bg-amber-50/20 border-amber-100/10 text-amber-600 dark:bg-amber-950/10 dark:text-amber-400'
                             }`}
                           >
-                            {isDone ? <CheckCircle2 className="h-2 w-2 shrink-0" /> : <Lock className="h-2 w-2 shrink-0" />}
+                            {isDone ? <CheckCircle2 className="h-2.5 w-2.5 shrink-0" /> : <Lock className="h-2.5 w-2.5 shrink-0" />}
                             <span className="truncate">{parent.title}</span>
 
                             {/* Pure CSS Tooltip for Sequence Pillar */}
@@ -472,22 +491,114 @@ export const CommitmentsSection: React.FC = () => {
                 </div>
               )}
 
+              {/* Floating Hover Toolbar - Linear style revealed ONLY on hover! */}
+              {statusFilter !== 'DELETED' && (
+                <div className="absolute bottom-3.5 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-zinc-950/95 dark:bg-zinc-900/95 border border-zinc-800 dark:border-zinc-800 px-2 py-1 rounded-xl shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto hover:pointer-events-auto transition-all duration-200 backdrop-blur-sm z-20 whitespace-nowrap">
+                  
+                  {/* Quick Complete Action */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (hasIncompletePrereqs && comm.status !== 'COMPLETED') {
+                        setDependencyLockModal({
+                          title: comm.title,
+                          prerequisites: incompletePrereqs as string[]
+                        });
+                        return;
+                      }
+                      if (goal && comm.status !== 'COMPLETED') {
+                        setConfirmModal({
+                          type: 'COMPLETE',
+                          commitmentId: comm.id,
+                          commitmentTitle: comm.title,
+                          goalTitle: goal.title
+                        });
+                      } else {
+                        toggleCommitmentComplete(comm.id);
+                      }
+                    }}
+                    className="p-1.5 text-zinc-400 hover:text-emerald-400 hover:bg-zinc-850 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+                    title={comm.status === 'COMPLETED' ? 'Mark Incomplete' : 'Quick Complete'}
+                  >
+                    <Check className={`h-3.5 w-3.5 ${comm.status === 'COMPLETED' ? 'text-emerald-400' : ''}`} />
+                  </button>
+
+                  {/* Reschedule (+1 Day) */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRescheduleOneDay(comm);
+                    }}
+                    className="p-1.5 text-zinc-400 hover:text-indigo-400 hover:bg-zinc-850 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+                    title="Reschedule +1 Day"
+                  >
+                    <Calendar className="h-3.5 w-3.5" />
+                  </button>
+
+                  {/* Edit metadata */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditModalComm(comm);
+                    }}
+                    className="p-1.5 text-zinc-400 hover:text-blue-400 hover:bg-zinc-850 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+                    title="Edit Details"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+
+                  {/* Duplicate */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDuplicate(comm);
+                    }}
+                    className="p-1.5 text-zinc-400 hover:text-amber-400 hover:bg-zinc-850 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+                    title="Duplicate Item"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+
+                  {/* Move to Trash/Archive */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmModal({
+                        type: 'DELETE',
+                        commitmentId: comm.id,
+                        commitmentTitle: comm.title,
+                        goalTitle: goal?.title || undefined
+                      });
+                    }}
+                    className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-zinc-850 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+                    title="Archive/Move to Trash"
+                  >
+                    <Archive className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
             </div>
           );
         })}
 
         {/* Empty States Handling */}
         {filteredCommitments.length === 0 && (
-          <div className="col-span-full border-2 border-dashed border-neutral-200 dark:border-zinc-800 rounded-3xl py-24 px-14 flex flex-col items-center justify-center text-center bg-neutral-50/15 dark:bg-zinc-950/10 min-h-[380px] transition-all">
-            <Layers className="h-11 w-11 text-neutral-300 dark:text-zinc-600 mb-4 opacity-80 animate-pulse" />
-            <p className="text-base font-semibold text-neutral-600 dark:text-zinc-300">
+          <div className="col-span-full border border-dashed border-slate-300 dark:border-zinc-800 rounded-2xl py-16 px-10 flex flex-col items-center justify-center text-center bg-slate-50/20 dark:bg-zinc-950/10 min-h-[320px] transition-all">
+            <Layers className="h-7 w-7 text-slate-400 dark:text-zinc-500 mb-3" />
+            <p className="text-xs font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wider font-mono">
               {statusFilter === 'DELETED' 
                 ? 'Trash is empty' 
                 : statusFilter === 'COMPLETED' 
-                ? 'No completed tasks yet' 
-                : 'All clear! No pending tasks'}
+                ? 'No completed commitments' 
+                : 'All clear! No pending actions'}
             </p>
-            <p className="text-xs text-neutral-400 dark:text-zinc-500 mt-2 max-w-sm leading-relaxed">
+            <p className="text-[11px] text-slate-450 dark:text-zinc-500 mt-1.5 max-w-xs leading-relaxed font-sans">
               {statusFilter === 'DELETED' 
                 ? 'Any items you delete will land here, and can be easily restored or deleted forever.' 
                 : statusFilter === 'COMPLETED'
@@ -569,9 +680,9 @@ export const CommitmentsSection: React.FC = () => {
       {/* Dependency Locked Sequence Modal (No choice/confirm buttons - completely informative block as requested!) */}
       {dependencyLockModal && (
         <div className="fixed inset-0 bg-slate-950/45 dark:bg-zinc-950/75 backdrop-blur-xs z-50 flex items-center justify-center px-4">
-          <div className="bg-white dark:bg-[#0c0d0e] border border-neutral-200 dark:border-zinc-900 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in duration-200 text-left">
+          <div className="bg-white dark:bg-[#0c0d0e] border border-neutral-200 dark:border-zinc-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in duration-200 text-left">
             
-            <div className="flex items-center gap-3 border-b border-neutral-100 dark:border-zinc-900 pb-3">
+            <div className="flex items-center gap-3 border-b border-neutral-100 dark:border-zinc-800 pb-3">
               <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/20 text-amber-500">
                 <Lock className="h-5 w-5 animate-bounce" />
               </div>
@@ -624,6 +735,207 @@ export const CommitmentsSection: React.FC = () => {
         </div>
       )}
 
+      {/* Edit Commitment Modal */}
+      {editModalComm && (
+        <div className="fixed inset-0 bg-slate-950/40 dark:bg-zinc-950/70 backdrop-blur-sm z-50 flex items-center justify-center px-4">
+          <div className="bg-white dark:bg-[#0c0d0e] border border-slate-200/80 dark:border-zinc-800/85 w-full max-w-lg rounded-2xl overflow-hidden shadow-xl p-6 space-y-4 animate-in fade-in zoom-in duration-200 text-left">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-zinc-900">
+              <h3 className="text-sm md:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Pencil className="h-4 w-4 text-blue-500" />
+                Edit Task & Commitment Details
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditModalComm(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-xs font-bold px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-zinc-900 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              {/* Title */}
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 dark:text-zinc-500 mb-1">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-500 transition-all font-sans font-medium"
+                  placeholder="Task title"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 dark:text-zinc-500 mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={3}
+                  className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-500 transition-all font-sans leading-relaxed"
+                  placeholder="Describe details, steps, or context"
+                />
+              </div>
+
+              {/* Row: Type and Status */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 dark:text-zinc-500 mb-1">
+                    Type
+                  </label>
+                  <select
+                    value={editType}
+                    onChange={(e) => setEditType(e.target.value as CommitmentType)}
+                    className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-500 transition-all font-sans"
+                  >
+                    <option value="TASK">Task</option>
+                    <option value="FOCUS_BLOCK">Focus Block</option>
+                    <option value="EVENT">Calendar Event</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 dark:text-zinc-500 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as any)}
+                    className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-500 transition-all font-sans"
+                  >
+                    <option value="PLANNED">Planned</option>
+                    <option value="IN_PROGRESS">In Progress</option>
+                    <option value="COMPLETED">Completed</option>
+                    <option value="CANCELLED">Cancelled (Trash)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Row: Goal and Duration */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 dark:text-zinc-500 mb-1">
+                    Linked Goal
+                  </label>
+                  <select
+                    value={editGoalId}
+                    onChange={(e) => setEditGoalId(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-500 transition-all font-sans"
+                  >
+                    <option value="">No Linked Goal</option>
+                    {goals.map((goal) => (
+                      <option key={goal.id} value={goal.id}>
+                        {goal.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 dark:text-zinc-500 mb-1">
+                    Estimated Duration (Mins)
+                  </label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="1440"
+                    value={editDuration}
+                    onChange={(e) => setEditDuration(Number(e.target.value))}
+                    className="w-full bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-500 transition-all font-sans"
+                  />
+                </div>
+              </div>
+
+              {/* Schedule Section */}
+              <div className="bg-slate-50/50 dark:bg-zinc-900/40 p-3.5 rounded-xl border border-slate-200/50 dark:border-zinc-800/80 space-y-3">
+                <span className="text-[10px] font-mono uppercase tracking-wider font-bold text-slate-400 dark:text-zinc-500 flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-zinc-400" />
+                  Timeline Schedule
+                </span>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[9px] font-sans font-medium text-slate-400 dark:text-zinc-500 mb-0.5">
+                      Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editDate}
+                      onChange={(e) => setEditDate(e.target.value)}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] font-sans font-medium text-slate-400 dark:text-zinc-500 mb-0.5">
+                      Start Time
+                    </label>
+                    <input
+                      type="time"
+                      value={editStartTime}
+                      onChange={(e) => setEditStartTime(e.target.value)}
+                      disabled={!editDate}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] font-sans font-medium text-slate-400 dark:text-zinc-500 mb-0.5">
+                      End Time
+                    </label>
+                    <input
+                      type="time"
+                      value={editEndTime}
+                      onChange={(e) => setEditEndTime(e.target.value)}
+                      disabled={!editDate || !editStartTime}
+                      className="w-full bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-between pt-3 border-t border-neutral-100 dark:border-zinc-900">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (confirm("Are you sure you want to permanently delete this task?")) {
+                      await deleteCommitment(editModalComm.id);
+                      setEditModalComm(null);
+                    }
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-rose-500 hover:text-white hover:bg-rose-600 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Permanently
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditModalComm(null)}
+                    className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-zinc-200 bg-slate-50 dark:bg-zinc-900/40 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-xl transition-all cursor-pointer border border-transparent hover:border-neutral-200 dark:hover:border-zinc-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all cursor-pointer shadow-sm"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

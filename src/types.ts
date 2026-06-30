@@ -8,47 +8,117 @@ export interface UserProfile {
   lastLogin: string;
 }
 
+export type GoalPlanningStatus = 'NOT_PLANNED' | 'PARTIALLY_PLANNED' | 'PLANNED' | 'EXECUTING' | 'COMPLETED';
+export type GoalHealthStatus = 'ON_TRACK' | 'AT_RISK' | 'OFF_TRACK';
+
 export interface Goal {
   id: string;
   userId: string;
   title: string;
   description: string;
+  category?: string;
+  area?: string; // compatibility
   deadline: string;
-  momentum: number; // 0 to 100
-  risk: 'LOW' | 'MEDIUM' | 'HIGH';
+  planningStatus?: GoalPlanningStatus;
+  goalHealth?: GoalHealthStatus;
   status: 'DRAFT' | 'PLANNING' | 'ACTIVE' | 'BLOCKED' | 'COMPLETED' | 'ARCHIVED';
-  area: string; // e.g. Travel, Career, Personal, Health
   createdAt: string;
   updatedAt: string;
+  
+  // compatibility
+  momentum?: number;
+  risk?: 'LOW' | 'MEDIUM' | 'HIGH';
 }
 
 export type CommitmentType = 'EVENT' | 'TASK' | 'FOCUS_BLOCK' | 'APPOINTMENT';
 export type CommitmentConstraint = 'FIXED' | 'FLEXIBLE' | 'OPTIONAL';
-export type CommitmentOrigin = 'USER' | 'CALENDAR' | 'GMAIL' | 'AI';
-export type CommitmentStatus = 'DISCOVERED' | 'PLANNED' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type CommitmentOrigin = 'GOOGLE' | 'USER' | 'MOTIVE' | 'SYSTEM';
+export type CommitmentStatus = 'DISCOVERED' | 'PLANNED' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'BLOCKED';
 
 export interface Commitment {
   id: string;
   userId: string;
-  type: CommitmentType;
   title: string;
   description?: string;
+  type: CommitmentType;
+  source: CommitmentOrigin;
+  accountId: string | null;
+  goalLinks: string[]; // references to goal IDs
+  dependencies: string[]; // references to commitment IDs
   constraint: CommitmentConstraint;
-  origin: CommitmentOrigin;
-  status: CommitmentStatus;
-  startTime?: string; // ISO string
-  endTime?: string; // ISO string
+  importance: 'LOW' | 'MEDIUM' | 'HIGH';
+  urgency: 'LOW' | 'MEDIUM' | 'HIGH';
+  impact: 'LOW' | 'MEDIUM' | 'HIGH';
+  energy: 'LOW' | 'MEDIUM' | 'HIGH';
   estimatedDuration: number; // in minutes
-  calendarEventId?: string;
-  gmailMessageId?: string;
-  dependsOn?: string[]; // IDs of commitments this commitment depends on
-  isRepeating?: boolean;
-  repeatDays?: number[]; // 0 to 6 (Sun-Sat)
-  repeatType?: 'DAILY' | 'WEEKLY' | 'NONE';
-  isAllDay?: boolean;
-  endDateStr?: string; // e.g. '2026-07-03' for multi-day events
+  scheduledStart: string | null; // ISO string
+  scheduledEnd: string | null; // ISO string
+  completedAt?: string | null; // ISO string
+  status: CommitmentStatus;
+  metadata: any;
   createdAt: string;
   updatedAt: string;
+  priorityScore?: number;
+
+  // Compatibility aliases
+  origin?: CommitmentOrigin;
+  startTime?: string;
+  endTime?: string;
+  calendarEventId?: string;
+  emailMessageId?: string;
+  dependsOn?: string[];
+  isRepeating?: boolean;
+  repeatDays?: number[];
+  repeatType?: 'DAILY' | 'WEEKLY' | 'NONE';
+  isAllDay?: boolean;
+  endDateStr?: string;
+  energyRequired?: 'LOW' | 'MEDIUM' | 'HIGH';
+  estimatedImpact?: 'LOW' | 'MEDIUM' | 'HIGH';
+  estimatedFocus?: 'DEEP' | 'NORMAL' | 'LIGHT';
+}
+
+export interface CalendarAccount {
+  id: string; // Google Account ID
+  userId: string;
+  email: string;
+  displayName: string;
+  avatar: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  syncToken: string | null;
+  lastSync: string | null;
+  isPrimary: boolean;
+}
+
+export interface CalendarEventCache {
+  id: string; // Google Event ID
+  calendarId: string;
+  accountId: string;
+  userId: string;
+  summary: string;
+  description: string;
+  start: string; // ISO string
+  end: string; // ISO string
+  status: string;
+  eTag: string;
+  updated: string;
+  deleted: boolean;
+}
+
+export interface TimelineEntry {
+  id: string;
+  userId: string;
+  type: string;
+  entityId: string;
+  summary: string;
+  createdAt: string;
+}
+
+export interface LinkedAccount {
+  email: string;
+  name: string;
+  photoUrl?: string;
+  isPrimary: boolean;
+  linkedAt: string;
 }
 
 export interface Relationship {
@@ -56,65 +126,20 @@ export interface Relationship {
   userId: string;
   goalId: string;
   commitmentId: string;
-  confidence: number; // 0 to 1
-  source: 'USER' | 'AI' | 'IMPORTED';
+  confidence: number;
+  source: string;
   reason: string;
-}
-
-export interface Recommendation {
-  id: string;
-  userId: string;
-  title: string;
-  reason: string;
-  impact: string; // e.g. "+12 Momentum"
-  confidence: number; // 0 to 100
-  estimatedMinutes: number;
-  goalId?: string;
-  status: 'ACTIVE' | 'ACCEPTED' | 'DISMISSED';
-  createdAt: string;
-}
-
-export type TimelineEventType = 
-  | 'GOAL_CREATED'
-  | 'GOAL_COMPLETED'
-  | 'COMMITMENT_COMPLETED'
-  | 'COMMITMENT_CREATED'
-  | 'RECOMMENDATION_ACCEPTED'
-  | 'CALENDAR_IMPORTED'
-  | 'EMAIL_DISCOVERED'
-  | 'RELATIONSHIP_ADDED';
-
-export interface TimelineEntry {
-  id: string;
-  userId: string;
-  type: TimelineEventType;
-  entityId: string;
-  summary: string;
-  createdAt: string;
-}
-
-export interface Artifact {
-  id: string;
-  userId: string;
-  type: 'EMAIL' | 'CALENDAR';
-  source: 'GMAIL' | 'GOOGLE_CALENDAR';
-  title: string;
-  summary: string;
-  receivedAt: string;
-  link?: string;
-  category?: string;
-  confidence?: number;
-  suggestedGoalId?: string;
-  status: 'PENDING' | 'ACCEPTED' | 'DISMISSED';
 }
 
 export interface UserSettings {
   userId: string;
   theme: 'LIGHT' | 'DARK' | 'SYSTEM';
   calendarSync: boolean;
-  gmailSync: boolean;
+  emailSync: boolean;
   focusBlockSync: boolean;
   notifications: boolean;
+  linkedAccounts?: LinkedAccount[];
+  logoFont?: 'plaster' | 'protest-gorilla' | 'emblema-one' | 'keania-one' | 'kenia';
 }
 
 export interface DailyBrief {
@@ -132,9 +157,101 @@ export interface WeeklyReview {
   nextWeekFocus: string[];
 }
 
+export interface ProposedAction {
+  id: string;
+  type: 'CREATE_GOAL' | 'CREATE_COMMITMENT' | 'RESCHEDULE_COMMITMENT' | 'DELETE_COMMITMENT';
+  description: string;
+  data: any;
+  status: 'PENDING' | 'EXECUTED' | 'REJECTED';
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'ai';
   text: string;
   timestamp: string;
+  actions?: ProposedAction[];
 }
+
+export interface GoalHealthDetails {
+  score: number;
+  status: GoalHealthStatus;
+  reason: string;
+}
+
+export interface PlannerResult {
+  executionMomentum: number;
+  executionMomentumDetails?: {
+    score: number;
+    previousScore: number;
+    trend: 'UP' | 'DOWN' | 'STABLE';
+    reason: string;
+  };
+  goalHealthMap: Record<string, GoalHealthDetails>;
+  todayCommitments: Commitment[];
+  recommendations: {
+    id: string;
+    title: string;
+    reason: string;
+    impact: string;
+    severity: 'INFO' | 'WARNING' | 'CRITICAL';
+    confidence?: number;
+    action?: string;
+    expectedBenefit?: string;
+  }[];
+  conflicts: {
+    id: string;
+    title: string;
+    reason: string;
+    commitmentIds: string[];
+    type?: 'OVERLAP' | 'DEPENDENCY_VIOLATION' | 'DEADLINE_COLLISION' | 'DOUBLE_BOOKED';
+  }[];
+  availableFocusSlots: {
+    start: string;
+    end: string;
+    duration: number; // in minutes
+    suggestedEnergyLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+    suggestedCommitmentId?: string;
+  }[];
+  upcomingDeadlines: {
+    goalId: string;
+    goalTitle: string;
+    daysLeft: number;
+    deadline: string;
+  }[];
+  generatedTimestamp: string;
+  plannerVersion: string;
+}
+
+export type PlannerCommandType = 
+  | 'CREATE_GOAL'
+  | 'UPDATE_GOAL'
+  | 'DELETE_GOAL'
+  | 'CREATE_COMMITMENT'
+  | 'UPDATE_COMMITMENT'
+  | 'DELETE_COMMITMENT'
+  | 'COMPLETE_COMMITMENT'
+  | 'RESCHEDULE_COMMITMENT'
+  | 'LINK_GOAL'
+  | 'UNLINK_GOAL'
+  | 'CREATE_FOCUS_BLOCK'
+  | 'GOOGLE_SYNC';
+
+export interface PlannerCommand {
+  id: string;
+  userId: string;
+  type: PlannerCommandType;
+  payload: any;
+  createdAt: string;
+}
+
+export interface PlanningContext {
+  currentUser: UserProfile | null;
+  currentTime: string; // ISO string
+  connectedAccounts: CalendarAccount[];
+  goals: Goal[];
+  commitments: Commitment[];
+  calendarEvents: CalendarEventCache[];
+  settings: UserSettings | null;
+}
+
